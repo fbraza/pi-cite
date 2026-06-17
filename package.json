@@ -1,6 +1,6 @@
 {
   "name": "@fbraza/pi-cite",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Pi extension with PubMed, Semantic Scholar, literature search, and full-text retrieval tools.",
   "license": "MIT",
   "type": "module",
