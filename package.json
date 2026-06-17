@@ -6,6 +6,7 @@
   "type": "module",
   "files": [
     "src",
+    "skills",
     "README.md"
   ],
   "keywords": [
@@ -18,6 +19,9 @@
   "pi": {
     "extensions": [
       "./src/index.ts"
+    ],
+    "skills": [
+      "./skills"
     ]
   },
   "scripts": {

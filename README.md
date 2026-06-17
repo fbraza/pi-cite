@@ -9,6 +9,19 @@ academic workflows. Registers four tools callable by the agent:
 - **`fetch_fulltext`** — retrieve a paper PDF via PMC → publisher OA → fallback.
 - (`semantic_scholar` helper used internally by the search tools.)
 
+## Bundled skill
+
+Ships with the **`literature`** skill (`skills/literature/`), which turns these
+tools into an end-to-end review workflow: verified-citation search, full-text
+retrieval, per-paper experiment extraction, and a structured hypothesis
+synthesis. Its frontmatter declares `allowed-tools` covering the extension's
+tools above, so the skill and extension are paired on purpose.
+
+- `references/` — PubMed/Semantic Scholar query syntax, API reference, and
+  full-text access routines.
+- `scripts/` — Python helpers (`extract_experiments.py`, `synthesis.py`,
+  `generate_table.py`, `export_all.py`) invoked by the skill.
+
 ## Install
 
 Published on npm as `@fbraza/pi-cite`:
