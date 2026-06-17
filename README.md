@@ -1,4 +1,4 @@
-# pi-extension-literature-tools
+# @fbraza/pi-cite
 
 A standalone [Pi](https://pi.dev) extension providing literature-research tools for
 academic workflows. Registers four tools callable by the agent:
@@ -11,12 +11,17 @@ academic workflows. Registers four tools callable by the agent:
 
 ## Install
 
+Published on npm as `@fbraza/pi-cite`:
+
 ```bash
 # install into your user pi settings
-pi install ~/Documents/pi-extension-literature-tools
+pi install npm:@fbraza/pi-cite
 
-# or try it for the current run only
-pi -e ~/Documents/pi-extension-literature-tools
+# pin a specific version
+pi install npm:@fbraza/pi-cite@0.1.0
+
+# or try it for the current run only (no settings change)
+pi -e npm:@fbraza/pi-cite
 ```
 
 Pi provides the host packages (`@earendil-works/pi-coding-agent`,
