@@ -24,8 +24,6 @@ def _identifier(paper: Dict) -> str:
         return f"PMID:{paper['pmid']}"
     if paper.get("doi"):
         return paper["doi"]
-    if paper.get("s2_id"):
-        return paper["s2_id"]
     return "NA"
 
 
@@ -51,7 +49,7 @@ def build_table_rows(papers: List[Dict], experiments: List[Dict] | None = None, 
             "#": idx,
             "PMID/DOI": _identifier(paper),
             "Authors (year)": _authors_year(paper),
-            "Key Message": _truncate(paper.get("tldr") or paper.get("title") or ""),
+            "Key Message": _truncate(paper.get("title") or ""),
             "Key Results": _truncate(paper.get("abstract") or exp.get("key_findings") or ""),
             "Key Methods": _truncate(
                 "; ".join(filter(None, [

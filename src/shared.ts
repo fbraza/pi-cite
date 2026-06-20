@@ -1,5 +1,3 @@
-import { mkdir, writeFile } from "node:fs/promises";
-import path from "node:path";
 import type { PaperRecord } from "./types.ts";
 
 export const USER_AGENT = "research-skills-literature-tools/0.1 (+https://github.com/fbraza/research-skills)";
@@ -81,23 +79,4 @@ export async function fetchJson<T>(url: string, signal?: AbortSignal, headers?: 
 
 export function formatPaperText(papers: PaperRecord[]): string {
 	return JSON.stringify(papers, null, 2);
-}
-
-export function sanitizeFilename(value: string): string {
-	return value.replace(/[^a-z0-9._-]+/gi, "_").replace(/^_+|_+$/g, "") || "paper";
-}
-
-export async function savePdf(pdfUrl: string, outputDir: string, preferredId: string, signal?: AbortSignal): Promise<string> {
-	await mkdir(outputDir, { recursive: true });
-	const response = await fetch(pdfUrl, {
-		method: "GET",
-		signal,
-		headers: { "user-agent": USER_AGENT, accept: "application/pdf,*/*" },
-		redirect: "follow",
-	});
-	if (!response.ok) throw new Error(`Failed to download PDF (${response.status})`);
-	const bytes = Buffer.from(await response.arrayBuffer());
-	const filePath = path.resolve(outputDir, `${sanitizeFilename(preferredId)}.pdf`);
-	await writeFile(filePath, bytes);
-	return filePath;
 }

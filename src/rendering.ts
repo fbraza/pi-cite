@@ -16,20 +16,19 @@ export type CompactPaperForDisplay = {
   source: string;
   year?: number;
   journal?: string;
-  citation_count?: number;
 };
 
 export type LiteratureSearchDisplayEvent =
   | { phase: "start" }
   | {
       phase: "query_start";
-      provider: "pubmed" | "semantic_scholar";
+      provider: "pubmed";
       query_index: number;
       query: string;
     }
   | {
       phase: "query_results";
-      provider: "pubmed" | "semantic_scholar";
+      provider: "pubmed";
       query_index: number;
       query: string;
       count: number;
@@ -37,7 +36,7 @@ export type LiteratureSearchDisplayEvent =
     }
   | {
       phase: "query_error";
-      provider: "pubmed" | "semantic_scholar";
+      provider: "pubmed";
       query_index: number;
       query: string;
       error: string;
@@ -46,7 +45,7 @@ export type LiteratureSearchDisplayEvent =
   | { phase: "complete"; count: number; papers: CompactPaperForDisplay[] };
 
 export type LiteratureSearchDisplaySearch = {
-  provider: "pubmed" | "semantic_scholar";
+  provider: "pubmed";
   query_index: number;
   query: string;
   count: number;
@@ -107,7 +106,6 @@ export function authorRange(paper: PaperRecord): string {
 export function paperIdentifier(paper: PaperRecord): string {
   if (paper.doi) return `DOI:${paper.doi}`;
   if (paper.pmid) return `PMID:${paper.pmid}`;
-  if (paper.s2_id) return `S2:${paper.s2_id}`;
   return "—";
 }
 
@@ -120,11 +118,7 @@ export function sourceLabel(paper: PaperRecord): string {
       .map((source) => source.trim())
       .filter(Boolean),
   );
-  const hasPubmed = sources.has("pubmed");
-  const hasS2 = sources.has("semantic_scholar");
-  if (hasPubmed && hasS2) return "PM+S2";
-  if (hasPubmed) return "PM";
-  if (hasS2) return "S2";
+  if (sources.has("pubmed")) return "PM";
   return paper.source ?? "—";
 }
 
@@ -136,7 +130,6 @@ export function compactPaperForDisplay(paper: PaperRecord): CompactPaperForDispl
     source: sourceLabel(paper),
     year: paper.year,
     journal: paper.journal,
-    citation_count: paper.citation_count,
   };
 }
 
@@ -144,12 +137,12 @@ export function compactPapersForDisplay(papers: PaperRecord[]): CompactPaperForD
   return papers.map(compactPaperForDisplay);
 }
 
-function providerLabel(provider: "pubmed" | "semantic_scholar"): string {
-  return provider === "pubmed" ? "PubMed" : "Semantic Scholar";
+function providerLabel(provider: "pubmed"): string {
+  return "PubMed";
 }
 
-function providerColor(provider: "pubmed" | "semantic_scholar"): string {
-  return provider === "pubmed" ? "success" : "accent";
+function providerColor(provider: "pubmed"): string {
+  return "success";
 }
 
 export function formatFoundLine(
@@ -168,7 +161,7 @@ export function formatMergedLine(
   theme?: ThemeLike,
 ): string {
   const title = truncateText(paper.title, 72);
-  const source = color(theme, paper.source.includes("S2") ? "accent" : "success", `(${paper.source})`);
+  const source = color(theme, "success", `(${paper.source})`);
   return `  ${color(theme, "success", "+")} ${index + 1}. ${title} ${source}`;
 }
 
@@ -237,7 +230,6 @@ type LiteratureResultDetails = {
   papers?: PaperRecord[];
   providers?: {
     pubmed?: ProviderSearchSummary;
-    semantic_scholar?: ProviderSearchSummary;
   };
   events?: LiteratureSearchDisplayEvent[];
 };
@@ -250,11 +242,9 @@ type ProviderResultDetails = {
 
 function renderCollapsedLiteratureResult(details: LiteratureResultDetails, theme?: ThemeLike): string {
   const pubmed = details?.providers?.pubmed;
-  const s2 = details?.providers?.semantic_scholar;
   const pubmedText = pubmed?.searched ? `PubMed: ${pubmed.count}` : "PubMed: —";
-  const s2Text = s2?.searched ? `S2: ${s2.count}` : "S2: skipped";
   const count = details?.count ?? details?.papers?.length ?? 0;
-  return `${color(theme, "success", "✓")} ${color(theme, "toolTitle", "literature_search")} ${color(theme, "success", pubmedText)} | ${color(theme, "accent", s2Text)} | merged: ${count}`;
+  return `${color(theme, "success", "✓")} ${color(theme, "toolTitle", "literature_search")} ${color(theme, "success", pubmedText)} | merged: ${count}`;
 }
 
 export function renderLiteratureSearchResult(
@@ -284,7 +274,7 @@ export function renderLiteratureSearchResult(
 }
 
 export function renderProviderSearchResult(
-  provider: "pubmed" | "semantic_scholar",
+  provider: "pubmed",
   result: ToolRenderResult<ProviderResultDetails>,
   options: RenderOptions,
   theme?: ThemeLike,
@@ -298,7 +288,7 @@ export function renderProviderSearchResult(
     return terminalText(color(theme, "warning", text));
   }
   if (!options.expanded) {
-    return terminalText(`${color(theme, "success", "✓")} ${color(theme, "toolTitle", provider === "pubmed" ? "pubmed_search" : "semantic_scholar_search")} ${papers.length} papers`);
+    return terminalText(`${color(theme, "success", "✓")} ${color(theme, "toolTitle", "pubmed_search")} ${papers.length} papers`);
   }
   const lines = [
     `${color(theme, providerColor(provider), "→")} ${color(theme, providerColor(provider), providerName)} q1: ${query}`,

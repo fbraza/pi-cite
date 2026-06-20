@@ -7,7 +7,6 @@ import {
   type LiteratureSearchDisplayEvent,
   type LiteratureSearchDisplaySearch,
 } from "./rendering.ts";
-import { searchSemanticScholar } from "./semantic-scholar.ts";
 import { formatPaperText, normalizeDoi, unique } from "./shared.ts";
 import { emitProgress, textResult, type TextToolUpdate } from "./tool-output.ts";
 import type { PaperRecord } from "./types.ts";
@@ -17,12 +16,6 @@ export const LITERATURE_SEARCH_PARAMS = Type.Object({
     description:
       "PubMed-ready query using PubMed syntax such as MeSH [mh], title/abstract [tiab], publication type [pt], substance [nm], and Boolean logic.",
   }),
-  semantic_scholar_query: Type.Optional(
-    Type.String({
-      description:
-        "Optional natural-language Semantic Scholar query for supplementary search. If omitted and Semantic Scholar is configured, a simplified query is derived from pubmed_query.",
-    }),
-  ),
   max_results: Type.Optional(
     Type.Number({ description: "Maximum results per provider (default 20)" }),
   ),
@@ -51,26 +44,10 @@ export type LiteratureSearchResult = {
   papers: PaperRecord[];
   providers: {
     pubmed: ProviderExecution;
-    semantic_scholar: ProviderExecution;
   };
   searches: LiteratureSearchDisplaySearch[];
   events: LiteratureSearchDisplayEvent[];
 };
-
-function firstYear(value?: string): number | undefined {
-  const match = value?.match(/^(\d{4})/);
-  return match?.[1] ? Number(match[1]) : undefined;
-}
-
-export function simplifyPubmedQueryForSemanticScholar(query: string): string {
-  const simplified = query
-    .replace(/\[[^\]]+\]/g, " ")
-    .replace(/\b(?:AND|OR|NOT)\b/gi, " ")
-    .replace(/[()"']/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
-  return simplified || query.trim();
-}
 
 function sourceList(paper: PaperRecord): string[] {
   return unique([
@@ -92,7 +69,6 @@ function dedupeKeys(paper: PaperRecord): string[] {
   const keys = [
     doi ? `doi:${doi}` : undefined,
     paper.pmid ? `pmid:${paper.pmid}` : undefined,
-    paper.s2_id ? `s2:${paper.s2_id}` : undefined,
   ];
   const title = normalizedTitle(paper.title);
   if (title && paper.year) keys.push(`title-year:${title}:${paper.year}`);
@@ -106,7 +82,6 @@ function mergePapers(existing: PaperRecord, incoming: PaperRecord): PaperRecord 
     ...existing,
     doi: normalizeDoi(existing.doi) ?? normalizeDoi(incoming.doi),
     pmid: existing.pmid ?? incoming.pmid,
-    s2_id: existing.s2_id ?? incoming.s2_id,
     title: existing.title !== "Untitled" ? existing.title : incoming.title,
     abstract: existing.abstract ?? incoming.abstract,
     authors: unique([...(existing.authors ?? []), ...(incoming.authors ?? [])]),
@@ -117,10 +92,6 @@ function mergePapers(existing: PaperRecord, incoming: PaperRecord): PaperRecord 
       ...(incoming.publication_types ?? []),
     ]),
     mesh_terms: unique([...(existing.mesh_terms ?? []), ...(incoming.mesh_terms ?? [])]),
-    citation_count: existing.citation_count ?? incoming.citation_count,
-    tldr: existing.tldr ?? incoming.tldr,
-    open_access_pdf: existing.open_access_pdf ?? incoming.open_access_pdf,
-    external_ids: { ...(incoming.external_ids ?? {}), ...(existing.external_ids ?? {}) },
     source: sources.join(";"),
     sources,
   };
@@ -208,88 +179,10 @@ export async function searchLiterature(
   });
   emitEvent(`PubMed q1 found ${pubmed.count} candidate papers.`);
 
-  const semanticScholarApiKey = process.env.SEMANTIC_SCHOLAR_API_KEY?.trim();
-  let semanticScholar: ProviderExecution = {
-    searched: false,
-    reason: "SEMANTIC_SCHOLAR_API_KEY not configured",
-  };
-  let semanticScholarPapers: PaperRecord[] = [];
-
-  if (semanticScholarApiKey) {
-    const semanticScholarQuery =
-      params.semantic_scholar_query?.trim() ||
-      simplifyPubmedQueryForSemanticScholar(params.pubmed_query);
-
-    events.push({
-      phase: "query_start",
-      provider: "semantic_scholar",
-      query_index: 1,
-      query: semanticScholarQuery,
-    });
-    emitEvent(`Searching Semantic Scholar q1: ${semanticScholarQuery}`);
-
-    try {
-      const semanticScholarResult = await searchSemanticScholar(
-        {
-          query: semanticScholarQuery,
-          max_results: Math.min(100, maxResults),
-          year_from: firstYear(params.date_from),
-          year_to: firstYear(params.date_to),
-        },
-        signal,
-        undefined,
-      );
-      semanticScholarPapers = semanticScholarResult.papers;
-      const semanticScholarDisplayPapers = compactPapersForDisplay(
-        semanticScholarResult.papers,
-      );
-      searches.push({
-        provider: "semantic_scholar",
-        query_index: 1,
-        query: semanticScholarQuery,
-        count: semanticScholarResult.count,
-        papers: semanticScholarDisplayPapers,
-      });
-      events.push({
-        phase: "query_results",
-        provider: "semantic_scholar",
-        query_index: 1,
-        query: semanticScholarQuery,
-        count: semanticScholarResult.count,
-        papers: semanticScholarDisplayPapers,
-      });
-      emitEvent(
-        `Semantic Scholar q1 found ${semanticScholarResult.count} candidate papers.`,
-      );
-      semanticScholar = {
-        searched: true,
-        count: semanticScholarResult.count,
-        query: semanticScholarQuery,
-      };
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      events.push({
-        phase: "query_error",
-        provider: "semantic_scholar",
-        query_index: 1,
-        query: semanticScholarQuery,
-        error: message,
-      });
-      semanticScholar = {
-        searched: false,
-        reason: `Semantic Scholar search failed: ${message}`,
-      };
-      emitEvent(`Semantic Scholar q1 failed: ${message}`);
-    }
-  }
-
   events.push({ phase: "dedupe" });
   emitEvent("Deduplicating literature results...");
 
-  const papers = dedupeLiteraturePapers([
-    ...pubmed.papers,
-    ...semanticScholarPapers,
-  ]);
+  const papers = dedupeLiteraturePapers(pubmed.papers);
   events.push({
     phase: "complete",
     count: papers.length,
@@ -307,7 +200,6 @@ export async function searchLiterature(
         query: pubmed.query ?? params.pubmed_query,
         total: pubmed.total,
       },
-      semantic_scholar: semanticScholar,
     },
     searches,
     events,
@@ -319,7 +211,7 @@ export function createLiteratureSearchTool() {
     name: "literature_search",
     label: "Literature Search",
     description:
-      "Run the literature workflow search: PubMed is always searched first with a PubMed-ready query; Semantic Scholar is searched as supplementary metadata when SEMANTIC_SCHOLAR_API_KEY is configured.",
+      "Run the literature workflow search against PubMed using a PubMed-ready query (MeSH [mh], title/abstract [tiab], publication type [pt], substance [nm], and Boolean logic).",
     parameters: LITERATURE_SEARCH_PARAMS,
     async execute(
       _toolCallId: string,
