@@ -7,6 +7,7 @@ import { createPubmedSearchTool } from "../src/pubmed.ts";
 import {
 	compactPaperForDisplay,
 	formatFoundLine,
+	formatPaperPreviewLine,
 	paperIdentifier,
 	sourceLabel,
 	truncateText,
@@ -150,9 +151,9 @@ test("literature_search searches PubMed, streams progress, and reports only the 
 
 	assert.ok(calls.some((url) => url.includes("esearch.fcgi")));
 	assert.ok(calls.some((url) => url.includes("efetch.fcgi")));
-	assert.ok(calls.every((url) => !url.includes("semanticscholar.org")));
-	assert.equal(updates[0].content[0].text, "Starting literature search...");
-	assert.ok(updates.some((update) => update.content[0].text === "PubMed q1 found 1 candidate papers."));
+	assert.ok(calls.every((url) => url.includes("eutils.ncbi.nlm.nih.gov")));
+	assert.equal(updates[0].content[0].text, "Searching PubMed...");
+	assert.ok(updates.some((update) => update.content[0].text === "Found 1 PubMed paper."));
 	assert.equal(result.isError, undefined);
 	assert.deepEqual(JSON.parse(result.content[0].text), [
 		{
@@ -174,13 +175,24 @@ test("literature_search searches PubMed, streams progress, and reports only the 
 		query: "trained immunity[tiab]",
 		total: 1,
 	});
-	assert.equal(result.details.providers.semantic_scholar, undefined);
+	assert.deepEqual(Object.keys(result.details.providers), ["pubmed"]);
+	const partialRendered = tool
+		.renderResult(updates.at(-1), { expanded: false, isPartial: true }, undefined)
+		.render(120)
+		.join("\n");
+	assert.equal(partialRendered.trimEnd(), "● literature_search found 1 PubMed paper");
 	const rendered = tool
 		.renderResult(result, { expanded: true, isPartial: false }, undefined)
 		.render(120)
 		.join("\n");
-	assert.match(rendered, /✓ found:/);
+	assert.match(rendered, /✓ literature_search 1 PubMed paper/);
+	assert.match(rendered, /query: trained immunity\[tiab\]/);
+	assert.match(rendered, /1\. Unknown 2024 — Fallback paper/);
 	assert.doesNotMatch(rendered, /Fallback abstract/);
+	assert.doesNotMatch(rendered, /✓ found:/);
+	assert.doesNotMatch(rendered, /deduplicating/i);
+	assert.doesNotMatch(rendered, /merged/i);
+	assert.doesNotMatch(rendered, /\(PM\)/);
 });
 
 test("literature rendering helpers format compact terminal paper lines", () => {
@@ -195,6 +207,7 @@ test("literature rendering helpers format compact terminal paper lines", () => {
 
 	assert.equal(paperIdentifier(paper), "DOI:10.1000/example");
 	assert.equal(sourceLabel(paper), "PM");
+	assert.equal(sourceLabel({ title: "External paper", source: "external" }), "—");
 	assert.equal(truncateText("abcdef", 4), "abc…");
 	const compact = compactPaperForDisplay(paper);
 	assert.deepEqual(compact, {
@@ -210,6 +223,12 @@ test("literature rendering helpers format compact terminal paper lines", () => {
 	assert.match(line, /Netea/);
 	assert.match(line, /DOI:10\.1000\/example/);
 	assert.doesNotMatch(line, /abstract/i);
+	const previewLine = formatPaperPreviewLine({ ...compact, year: 2024 }, 0);
+	assert.equal(
+		previewLine,
+		"  1. Netea 2024 — A very long title about trained immunity in macrophages and inflammatory disease that s…",
+	);
+	assert.doesNotMatch(previewLine, /DOI|PMID|\(PM\)/);
 });
 
 test.after(() => {

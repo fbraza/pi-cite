@@ -2,7 +2,7 @@ import { Text } from "@earendil-works/pi-tui";
 import type { PaperRecord } from "./types.ts";
 
 export const MAX_STREAMED_PAPERS_PER_QUERY = 5;
-export const MAX_FINAL_MERGED_PAPERS = 20;
+export const MAX_EXPANDED_PAPER_PREVIEW = 5;
 
 type ThemeLike = {
   fg?: (color: string, text: string) => string;
@@ -32,7 +32,6 @@ export type LiteratureSearchDisplayEvent =
       query_index: number;
       query: string;
       count: number;
-      papers: CompactPaperForDisplay[];
     }
   | {
       phase: "query_error";
@@ -42,7 +41,7 @@ export type LiteratureSearchDisplayEvent =
       error: string;
     }
   | { phase: "dedupe" }
-  | { phase: "complete"; count: number; papers: CompactPaperForDisplay[] };
+  | { phase: "complete"; count: number };
 
 export type LiteratureSearchDisplaySearch = {
   provider: "pubmed";
@@ -119,7 +118,7 @@ export function sourceLabel(paper: PaperRecord): string {
       .filter(Boolean),
   );
   if (sources.has("pubmed")) return "PM";
-  return paper.source ?? "—";
+  return "—";
 }
 
 export function compactPaperForDisplay(paper: PaperRecord): CompactPaperForDisplay {
@@ -145,6 +144,10 @@ function providerColor(provider: "pubmed"): string {
   return "success";
 }
 
+function pluralize(count: number, singular: string, plural = `${singular}s`): string {
+  return count === 1 ? singular : plural;
+}
+
 export function formatFoundLine(
   paper: CompactPaperForDisplay,
   theme?: ThemeLike,
@@ -155,60 +158,14 @@ export function formatFoundLine(
   return `  ${color(theme, "success", "✓ found:")} ${author}  ${title}  ${color(theme, "muted", id)}`;
 }
 
-export function formatMergedLine(
+export function formatPaperPreviewLine(
   paper: CompactPaperForDisplay,
   index: number,
   theme?: ThemeLike,
 ): string {
-  const title = truncateText(paper.title, 72);
-  const source = color(theme, "success", `(${paper.source})`);
-  return `  ${color(theme, "success", "+")} ${index + 1}. ${title} ${source}`;
-}
-
-function renderEvent(
-  event: LiteratureSearchDisplayEvent,
-  theme?: ThemeLike,
-): string[] {
-  if (event.phase === "start") {
-    return [`${color(theme, "accent", "●")} ${color(theme, "toolTitle", "literature_search")} starting`];
-  }
-  if (event.phase === "query_start") {
-    return [
-      `${color(theme, providerColor(event.provider), "→")} ${color(theme, providerColor(event.provider), providerLabel(event.provider))} q${event.query_index}: ${event.query}`,
-    ];
-  }
-  if (event.phase === "query_results") {
-    const lines = event.papers
-      .slice(0, MAX_STREAMED_PAPERS_PER_QUERY)
-      .map((paper) => formatFoundLine(paper, theme));
-    const hidden = event.count - Math.min(event.count, MAX_STREAMED_PAPERS_PER_QUERY);
-    if (hidden > 0) lines.push(`  ${color(theme, "dim", "…")} ${hidden} more candidate papers`);
-    if (event.count === 0) lines.push(`  ${color(theme, "muted", "no candidate papers found")}`);
-    return lines;
-  }
-  if (event.phase === "query_error") {
-    return [
-      `  ${color(theme, "error", "! failed:")} ${providerLabel(event.provider)} q${event.query_index}: ${truncateText(event.error, 96)}`,
-    ];
-  }
-  if (event.phase === "dedupe") {
-    return [`${color(theme, "warning", "→")} deduplicating by DOI / PMID / title-year`];
-  }
-  const lines = event.papers
-    .slice(0, MAX_FINAL_MERGED_PAPERS)
-    .map((paper, index) => formatMergedLine(paper, index, theme));
-  const hidden = event.count - Math.min(event.count, MAX_FINAL_MERGED_PAPERS);
-  if (hidden > 0) lines.push(`  ${color(theme, "dim", "…")} ${hidden} more merged papers`);
-  lines.push(`${color(theme, "success", "✓")} done: ${event.count} merged papers`);
-  return lines;
-}
-
-export function renderLiteratureEventTranscript(
-  events: LiteratureSearchDisplayEvent[] | undefined,
-  theme?: ThemeLike,
-): string {
-  if (!events?.length) return "";
-  return events.flatMap((event) => renderEvent(event, theme)).join("\n");
+  const year = paper.year ? ` ${paper.year}` : "";
+  const title = truncateText(paper.title, 88);
+  return `  ${color(theme, "success", `${index + 1}.`)} ${paper.first_author}${year} — ${title}`;
 }
 
 type RenderOptions = { expanded?: boolean; isPartial?: boolean };
@@ -223,6 +180,7 @@ type ToolRenderResult<TDetails> = {
 type ProviderSearchSummary = {
   searched?: boolean;
   count?: number;
+  query?: string;
 };
 
 type LiteratureResultDetails = {
@@ -241,10 +199,40 @@ type ProviderResultDetails = {
 };
 
 function renderCollapsedLiteratureResult(details: LiteratureResultDetails, theme?: ThemeLike): string {
-  const pubmed = details?.providers?.pubmed;
-  const pubmedText = pubmed?.searched ? `PubMed: ${pubmed.count}` : "PubMed: —";
-  const count = details?.count ?? details?.papers?.length ?? 0;
-  return `${color(theme, "success", "✓")} ${color(theme, "toolTitle", "literature_search")} ${color(theme, "success", pubmedText)} | merged: ${count}`;
+  const count = details.count ?? details.papers?.length ?? details.providers?.pubmed?.count;
+  const prefix = `${color(theme, "success", "✓")} ${color(theme, "toolTitle", "literature_search")}`;
+  if (count === undefined) return `${prefix} PubMed papers`;
+  if (count === 0) return `${prefix} no PubMed papers found`;
+  return `${prefix} ${count} PubMed ${pluralize(count, "paper")}`;
+}
+
+function renderLiteratureStreamingStatus(details: LiteratureResultDetails, theme?: ThemeLike): string {
+  const event = details.events?.at(-1);
+  const prefix = `${color(theme, "accent", "●")} ${color(theme, "toolTitle", "literature_search")}`;
+  if (!event || event.phase === "start" || event.phase === "query_start" || event.phase === "dedupe") {
+    return `${prefix} searching PubMed…`;
+  }
+  if (event.phase === "query_error") {
+    return `${color(theme, "error", "!")} ${color(theme, "toolTitle", "literature_search")} PubMed failed: ${truncateText(event.error, 96)}`;
+  }
+  const count = event.count;
+  if (count === 0) return `${prefix} no PubMed papers found`;
+  return `${prefix} found ${count} PubMed ${pluralize(count, "paper")}`;
+}
+
+function renderExpandedLiteratureResult(details: LiteratureResultDetails, theme?: ThemeLike): string {
+  const papers = compactPapersForDisplay(details.papers ?? []);
+  const lines = [renderCollapsedLiteratureResult(details, theme)];
+  const query = details.providers?.pubmed?.query;
+  if (query) lines.push(`${color(theme, "muted", "query:")} ${truncateText(query, 96)}`);
+  lines.push(
+    ...papers
+      .slice(0, MAX_EXPANDED_PAPER_PREVIEW)
+      .map((paper, index) => formatPaperPreviewLine(paper, index, theme)),
+  );
+  const hidden = papers.length - Math.min(papers.length, MAX_EXPANDED_PAPER_PREVIEW);
+  if (hidden > 0) lines.push(`  ${color(theme, "dim", "…")} ${hidden} more ${pluralize(hidden, "paper")} in tool result`);
+  return lines.join("\n");
 }
 
 export function renderLiteratureSearchResult(
@@ -253,24 +241,13 @@ export function renderLiteratureSearchResult(
   theme?: ThemeLike,
 ): Text {
   const details = result.details ?? {};
-  const transcript = renderLiteratureEventTranscript(details.events, theme);
   if (options.isPartial) {
-    return terminalText(transcript || color(theme, "warning", "Searching literature..."));
+    return terminalText(renderLiteratureStreamingStatus(details, theme));
   }
   if (!options.expanded) {
     return terminalText(renderCollapsedLiteratureResult(details, theme));
   }
-  if (transcript) return terminalText(transcript);
-
-  const papers = compactPapersForDisplay(details.papers ?? []);
-  const lines = [
-    `${color(theme, "accent", "●")} ${color(theme, "toolTitle", "literature_search")} result`,
-    renderCollapsedLiteratureResult(details, theme),
-    `${color(theme, "warning", "→")} deduplicating by DOI / PMID / title-year`,
-    ...papers.slice(0, MAX_FINAL_MERGED_PAPERS).map((paper, index) => formatMergedLine(paper, index, theme)),
-    `${color(theme, "success", "✓")} done: ${papers.length} merged papers`,
-  ];
-  return terminalText(lines.join("\n"));
+  return terminalText(renderExpandedLiteratureResult(details, theme));
 }
 
 export function renderProviderSearchResult(
