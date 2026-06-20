@@ -138,7 +138,7 @@ export async function searchLiterature(
     emitProgress(onUpdate, text, { events: [...events] });
   };
 
-  emitEvent("Starting literature search...");
+  emitEvent("Searching PubMed...");
 
   events.push({
     phase: "query_start",
@@ -146,7 +146,7 @@ export async function searchLiterature(
     query_index: 1,
     query: params.pubmed_query,
   });
-  emitEvent(`Searching PubMed q1: ${params.pubmed_query}`);
+  emitEvent("Searching PubMed...");
 
   const pubmed = await searchPubmed(
     {
@@ -175,20 +175,18 @@ export async function searchLiterature(
     query_index: 1,
     query: pubmed.query ?? params.pubmed_query,
     count: pubmed.count,
-    papers: pubmedDisplayPapers,
   });
-  emitEvent(`PubMed q1 found ${pubmed.count} candidate papers.`);
+  emitEvent(`Found ${pubmed.count} PubMed ${pubmed.count === 1 ? "paper" : "papers"}.`);
 
   events.push({ phase: "dedupe" });
-  emitEvent("Deduplicating literature results...");
+  emitEvent("Preparing results...");
 
   const papers = dedupeLiteraturePapers(pubmed.papers);
   events.push({
     phase: "complete",
     count: papers.length,
-    papers: compactPapersForDisplay(papers),
   });
-  emitEvent(`Literature search complete: ${papers.length} merged papers.`);
+  emitEvent(`Literature search complete: ${papers.length} PubMed ${papers.length === 1 ? "paper" : "papers"}.`);
 
   return {
     count: papers.length,
