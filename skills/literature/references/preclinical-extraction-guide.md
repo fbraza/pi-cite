@@ -173,7 +173,7 @@ The `experiment_extraction.csv` file contains one row per paper with these colum
 ### 1. Abstract-only extraction
 The script only reads abstracts, not full text. Papers that describe experiments only in the methods/results sections (not the abstract) will be misclassified as "unclassified".
 
-**Mitigation:** Step 5 of the workflow (full-text enrichment) addresses this for top papers.
+**Mitigation:** No full-text enrichment step is currently available; papers whose experiments appear only in the methods/results sections may be misclassified as "unclassified".
 
 ### 2. Keyword sensitivity
 - **False positives:** A paper mentioning "mouse model" in the introduction (not as an experiment performed) may be classified as in_vivo.

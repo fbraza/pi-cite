@@ -35,15 +35,16 @@ def classify_study_type(paper: Dict) -> str:
 
 def classify_evidence_quality(paper: Dict) -> str:
     study_type = classify_study_type(paper)
-    citation_count = int(paper.get("citation_count") or 0)
     if study_type in {"Systematic review / meta-analysis", "Randomized controlled trial"}:
         return "High"
     if study_type in {"Clinical study", "In vitro + in vivo"}:
         return "Moderate"
     if paper.get("is_preprint"):
         return "Preliminary (preprint)"
-    if study_type in {"In vivo", "In vitro"}:
-        return "Moderate" if citation_count >= 20 else "Low to moderate"
+    if study_type == "In vivo":
+        return "Moderate"
+    if study_type == "In vitro":
+        return "Preliminary"
     return "Preliminary"
 
 
