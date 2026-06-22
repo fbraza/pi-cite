@@ -12,9 +12,19 @@ import {
 	sourceLabel,
 	truncateText,
 } from "../src/rendering.ts";
+import { createZoteroSearchTool } from "../src/zotero.ts";
+import {
+	buildZoteroOwnershipIndex,
+	markPapersWithZoteroOwnership,
+	zoteroItemToPaperRecord,
+} from "../src/zotero.ts";
+import { dedupeKeys, doiToUrl, normalizePmcid, pmcidToUrl } from "../src/shared.ts";
+import type { PaperRecord } from "../src/types.ts";
 
 const originalFetch = globalThis.fetch;
 const originalNcbiApiKey = process.env.NCBI_API_KEY;
+const originalZoteroApiKey = process.env.ZOTERO_API_KEY;
+const originalZoteroUserId = process.env.ZOTERO_USER_ID;
 
 function pubmedXml({
 	pmid = "12345",
@@ -46,6 +56,29 @@ function pubmedXml({
 	</PubmedArticleSet>`;
 }
 
+function zoteroItemFixture(overrides: Record<string, unknown> = {}): Record<string, unknown> {
+	return {
+		key: "ZOTKEY1",
+		version: 1,
+		library: { type: "user", id: 475425 },
+		meta: { creatorSummary: "Smith", parsedDate: "2023-06-01", numChildren: 1 },
+		data: {
+			key: "ZOTKEY1",
+			itemType: "journalArticle",
+			title: "Owned paper",
+			abstractNote: "Owned abstract.",
+			creators: [{ creatorType: "author", firstName: "Jane", lastName: "Smith" }],
+			publicationTitle: "Owned Journal",
+			date: "2023-06-01",
+			DOI: "10.1000/example",
+			url: "https://doi.org/10.1000/example",
+			extra: "PMID: 111\nPMCID: PMC555",
+			tags: [],
+		},
+		...overrides,
+	};
+}
+
 test("literature extension registers all expected tools", () => {
 	const tools: Array<{ name: string }> = [];
 	const fakePi = {
@@ -58,7 +91,7 @@ test("literature extension registers all expected tools", () => {
 
 	assert.deepEqual(
 		tools.map((tool) => tool.name),
-		["literature_search", "pubmed_search"],
+		["literature_search", "pubmed_search", "zotero_search"],
 	);
 });
 
@@ -111,6 +144,8 @@ test("pubmed_search emits pi-compliant progress updates, returns text content, a
 });
 
 test("literature_search searches PubMed, streams progress, and reports only the pubmed provider", async () => {
+	const previousZoteroKey = process.env.ZOTERO_API_KEY;
+	delete process.env.ZOTERO_API_KEY;
 	const calls: string[] = [];
 	globalThis.fetch = async (input: RequestInfo | URL) => {
 		const url = String(input);
@@ -193,6 +228,188 @@ test("literature_search searches PubMed, streams progress, and reports only the 
 	assert.doesNotMatch(rendered, /deduplicating/i);
 	assert.doesNotMatch(rendered, /merged/i);
 	assert.doesNotMatch(rendered, /\(PM\)/);
+	if (previousZoteroKey === undefined) {
+		delete process.env.ZOTERO_API_KEY;
+	} else {
+		process.env.ZOTERO_API_KEY = previousZoteroKey;
+	}
+	globalThis.fetch = originalFetch;
+});
+
+test("shared helpers normalize PMCID/DOI and build dedupe keys", () => {
+	assert.equal(normalizePmcid("pmcid: PMC555"), "PMC555");
+	assert.equal(normalizePmcid("PMC555"), "PMC555");
+	assert.equal(normalizePmcid("555"), "PMC555");
+	assert.equal(normalizePmcid(undefined), undefined);
+	assert.equal(doiToUrl("10.1000/example"), "https://doi.org/10.1000/example");
+	assert.equal(doiToUrl("https://doi.org/10.1000/example"), "https://doi.org/10.1000/example");
+	assert.equal(doiToUrl(undefined), undefined);
+	assert.equal(pmcidToUrl("PMC555"), "https://www.ncbi.nlm.nih.gov/pmc/articles/PMC555/");
+	assert.equal(pmcidToUrl(undefined), undefined);
+	const keys = dedupeKeys({
+		title: "Owned paper",
+		doi: "10.1000/example",
+		pmid: "111",
+		pmcid: "PMC555",
+		year: 2023,
+		source: "zotero",
+	});
+	assert.deepEqual(keys.sort(), [
+		"doi:10.1000/example",
+		"pmcid:PMC555",
+		"pmid:111",
+		"title-year:owned paper:2023",
+	]);
+});
+
+test("zoteroItemToPaperRecord extracts DOI, PMID, and PMCID from item + extra", () => {
+	const paper = zoteroItemToPaperRecord(zoteroItemFixture() as any);
+	assert.deepEqual(paper, {
+		title: "Owned paper",
+		abstract: "Owned abstract.",
+		doi: "10.1000/example",
+		pmid: "111",
+		pmcid: "PMC555",
+		authors: ["Jane Smith"],
+		journal: "Owned Journal",
+		year: 2023,
+		source: "zotero",
+		in_zotero: true,
+		zotero_key: "ZOTKEY1",
+	});
+});
+
+test("buildZoteroOwnershipIndex indexes DOI, PMID, PMCID, and title-year", () => {
+	const index = buildZoteroOwnershipIndex([zoteroItemFixture() as any]);
+	assert.equal(index.get("doi:10.1000/example"), "ZOTKEY1");
+	assert.equal(index.get("pmid:111"), "ZOTKEY1");
+	assert.equal(index.get("pmcid:PMC555"), "ZOTKEY1");
+	assert.equal(index.get("title-year:owned paper:2023"), "ZOTKEY1");
+	assert.equal(index.get("doi:10.9999/nope"), undefined);
+});
+
+test("markPapersWithZoteroOwnership flags owned candidates and marks the rest false", () => {
+	const index = buildZoteroOwnershipIndex([zoteroItemFixture() as any]);
+	const candidates: PaperRecord[] = [
+		{ title: "Owned paper", doi: "10.1000/example", year: 2023, source: "pubmed" },
+		{ title: "New paper", doi: "10.9999/nope", year: 2024, source: "pubmed" },
+	];
+	const marked = markPapersWithZoteroOwnership(candidates, index);
+	assert.equal(marked[0].in_zotero, true);
+	assert.equal(marked[0].zotero_key, "ZOTKEY1");
+	assert.equal(marked[1].in_zotero, false);
+	assert.equal(marked[1].zotero_key, undefined);
+});
+
+test("zotero_search validates the key and returns owned papers", async () => {
+	const previousKey = process.env.ZOTERO_API_KEY;
+	const previousUser = process.env.ZOTERO_USER_ID;
+	process.env.ZOTERO_API_KEY = "test-zotero-key";
+	process.env.ZOTERO_USER_ID = "475425";
+	try {
+		const calls: string[] = [];
+		globalThis.fetch = async (input: RequestInfo | URL) => {
+			const url = String(input);
+			calls.push(url);
+			if (url.includes("/keys/current")) {
+				return new Response(JSON.stringify({ userID: 475425, username: "tester" }), {
+					status: 200,
+					headers: { "content-type": "application/json" },
+				});
+			}
+			if (url.includes("/items/top")) {
+				return new Response(JSON.stringify([zoteroItemFixture()]), {
+					status: 200,
+					headers: { "content-type": "application/json", "Total-Results": "1" },
+				});
+			}
+			throw new Error(`Unexpected fetch: ${url}`);
+		};
+
+		const tool = createZoteroSearchTool();
+		const updates: any[] = [];
+		const result = await tool.execute(
+			"tool-call",
+			{ query: "trained immunity", max_results: 5 },
+			undefined,
+			(update: any) => updates.push(update),
+		);
+
+		assert.ok(calls.some((url) => url.includes("/keys/current")));
+		assert.ok(calls.some((url) => url.includes("/items/top")));
+		assert.equal(result.isError, undefined);
+		const papers = JSON.parse(result.content[0].text);
+		assert.equal(papers.length, 1);
+		assert.equal(papers[0].doi, "10.1000/example");
+		assert.equal(papers[0].in_zotero, true);
+		assert.equal(result.details.count, 1);
+		assert.equal(result.details.total, 1);
+		assert.ok(
+			updates.some((u) => u.content[0].text === "Searching Zotero library for: trained immunity"),
+		);
+	} finally {
+		process.env.ZOTERO_API_KEY = previousKey;
+		process.env.ZOTERO_USER_ID = previousUser;
+		globalThis.fetch = originalFetch;
+	}
+});
+
+test("literature_search marks PubMed candidates already in the Zotero library", async () => {
+	const previousKey = process.env.ZOTERO_API_KEY;
+	const previousUser = process.env.ZOTERO_USER_ID;
+	process.env.ZOTERO_API_KEY = "test-zotero-key";
+	process.env.ZOTERO_USER_ID = "475425";
+	try {
+		globalThis.fetch = async (input: RequestInfo | URL) => {
+			const url = String(input);
+			if (url.includes("esearch.fcgi")) {
+				return new Response(
+					JSON.stringify({ esearchresult: { idlist: ["12345"], count: "1" } }),
+					{ status: 200, headers: { "content-type": "application/json" } },
+				);
+			}
+			if (url.includes("efetch.fcgi")) {
+				return new Response(
+					pubmedXml({ doi: "10.1000/example", title: "Owned paper", year: "2023" }),
+					{ status: 200, headers: { "content-type": "application/xml" } },
+				);
+			}
+			if (url.includes("/keys/current")) {
+				return new Response(JSON.stringify({ userID: 475425, username: "tester" }), {
+					status: 200,
+					headers: { "content-type": "application/json" },
+				});
+			}
+			if (url.includes("/items/top")) {
+				return new Response(JSON.stringify([zoteroItemFixture()]), {
+					status: 200,
+					headers: { "content-type": "application/json", "Total-Results": "1" },
+				});
+			}
+			throw new Error(`Unexpected fetch: ${url}`);
+		};
+
+		const tool = createLiteratureSearchTool();
+		const updates: any[] = [];
+		const result = await tool.execute(
+			"tool-call",
+			{ pubmed_query: "trained immunity[tiab]", max_results: 1 },
+			undefined,
+			(update: any) => updates.push(update),
+		);
+
+		const papers = JSON.parse(result.content[0].text);
+		assert.equal(papers.length, 1);
+		assert.equal(papers[0].doi, "10.1000/example");
+		assert.equal(papers[0].in_zotero, true);
+		assert.equal(papers[0].zotero_key, "ZOTKEY1");
+		assert.equal(result.details.providers.zotero.searched, true);
+		assert.ok(updates.some((u) => /already in your Zotero library/.test(u.content[0].text)));
+	} finally {
+		process.env.ZOTERO_API_KEY = previousKey;
+		process.env.ZOTERO_USER_ID = previousUser;
+		globalThis.fetch = originalFetch;
+	}
 });
 
 test("literature rendering helpers format compact terminal paper lines", () => {
@@ -237,5 +454,15 @@ test.after(() => {
 		delete process.env.NCBI_API_KEY;
 	} else {
 		process.env.NCBI_API_KEY = originalNcbiApiKey;
+	}
+	if (originalZoteroApiKey === undefined) {
+		delete process.env.ZOTERO_API_KEY;
+	} else {
+		process.env.ZOTERO_API_KEY = originalZoteroApiKey;
+	}
+	if (originalZoteroUserId === undefined) {
+		delete process.env.ZOTERO_USER_ID;
+	} else {
+		process.env.ZOTERO_USER_ID = originalZoteroUserId;
 	}
 });

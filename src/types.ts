@@ -1,5 +1,6 @@
 export type PaperRecord = {
 	pmid?: string;
+	pmcid?: string;
 	doi?: string;
 	title: string;
 	abstract?: string;
@@ -14,4 +15,6 @@ export type PaperRecord = {
 	category?: string;
 	version?: string;
 	license?: string;
+	in_zotero?: boolean;
+	zotero_key?: string;
 };

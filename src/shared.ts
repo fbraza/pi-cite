@@ -41,6 +41,25 @@ export function normalizeDoi(raw?: string): string | undefined {
 		.trim() || undefined;
 }
 
+export function normalizePmcid(raw?: string): string | undefined {
+	if (!raw) return undefined;
+	const cleaned = raw.trim().replace(/^pmcid?:\s*/i, "").toUpperCase();
+	if (!cleaned) return undefined;
+	const digits = cleaned.replace(/^PMC/, "").replace(/\D/g, "");
+	if (!digits) return undefined;
+	return `PMC${digits}`;
+}
+
+export function doiToUrl(doi?: string): string | undefined {
+	const normalized = normalizeDoi(doi);
+	return normalized ? `https://doi.org/${normalized}` : undefined;
+}
+
+export function pmcidToUrl(pmcid?: string): string | undefined {
+	const normalized = normalizePmcid(pmcid);
+	return normalized ? `https://www.ncbi.nlm.nih.gov/pmc/articles/${normalized}/` : undefined;
+}
+
 export function xmlDecode(text: string): string {
 	return htmlDecode(text);
 }
@@ -79,4 +98,31 @@ export async function fetchJson<T>(url: string, signal?: AbortSignal, headers?: 
 
 export function formatPaperText(papers: PaperRecord[]): string {
 	return JSON.stringify(papers, null, 2);
+}
+
+export function normalizedTitle(title: string): string {
+	return title
+		.toLowerCase()
+		.replace(/[^a-z0-9]+/g, " ")
+		.replace(/\s+/g, " ")
+		.trim();
+}
+
+/**
+ * Build the set of identity keys used to deduplicate papers across providers
+ * and to match PubMed candidates against a Zotero ownership index. Keys cover
+ * DOI, PMID, PMCID, and title-year so a paper is matched even when one source
+ * is missing an identifier.
+ */
+export function dedupeKeys(paper: PaperRecord): string[] {
+	const doi = normalizeDoi(paper.doi)?.toLowerCase();
+	const pmcid = normalizePmcid(paper.pmcid)?.toUpperCase();
+	const keys: (string | undefined)[] = [
+		doi ? `doi:${doi}` : undefined,
+		paper.pmid ? `pmid:${paper.pmid}` : undefined,
+		pmcid ? `pmcid:${pmcid}` : undefined,
+	];
+	const title = normalizedTitle(paper.title);
+	if (title && paper.year) keys.push(`title-year:${title}:${paper.year}`);
+	return unique(keys);
 }

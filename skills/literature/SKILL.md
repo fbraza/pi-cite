@@ -1,7 +1,7 @@
 ---
 name: literature
 description: Unified literature search, verification, and synthesis workflow for scientific questions. Use when any biological claim needs a verified citation, when reviewing a gene/pathway/disease/drug/target, when surveying preclinical evidence for a target in a disease, when checking novelty, or when turning a paper set into a structured hypothesis synthesis.
-allowed-tools: Read, Write, WebFetch, WebSearch, literature_search, pubmed_search
+allowed-tools: Read, Write, WebFetch, WebSearch, literature_search, pubmed_search, zotero_search
 starting-prompt: Conduct a literature review on my research topic with verified citations, structured synthesis, and a per-paper summary table.
 ---
 
@@ -84,6 +84,10 @@ When calling `literature_search`:
 
 These extension tools are the preferred search path for this skill. Do not fall back to generic `WebFetch` / `WebSearch` first when one of these typed tools fits the task.
 
+When the `ZOTERO_API_KEY` environment variable is set, `literature_search` automatically cross-checks PubMed candidates against the user's Zotero library after the PubMed search and flags papers already owned (`in_zotero: true`, with the matching `zotero_key`). The full library is fetched once (top-level items, capped at ~2000) and matched by DOI, PMID, PMCID, or title-year — so it catches matches even when one source is missing an identifier. No papers are written to the Zotero library; it is used read-only as a source of truth for "already have this". When no key is set, this step is skipped entirely.
+
+The standalone `zotero_search` tool searches the Zotero library directly by keyword (title/creators/year, and indexed full text when `qmode=everything`) and is useful when you want to surface papers you already own on a topic without going through PubMed.
+
 Read these references before constructing queries:
 - `references/pubmed_routine.md`
 - `references/pubmed_search_syntax.md`
@@ -92,6 +96,7 @@ Read these references before constructing queries:
 ### Step 4 — Screen and prioritise
 
 - Deduplicate PubMed results.
+- Use the `in_zotero` flag to distinguish papers you already have from those you still need to acquire. The summary table exposes `In Zotero` (Yes/No) plus `DOI` and `Access Link` columns for the non-owned papers: the DOI URL always, and the PMC full-text URL when a PMCID is available.
 - Prioritise by relevance, recency, and study type.
 - Default to deep reading of the top 20 papers unless the user asks otherwise.
 - For preclinical requests, keep studies with experimental target perturbation evidence.
@@ -145,8 +150,8 @@ Use concise prose with inline citations.
 ```markdown
 ## Paper Summary Table
 
-| # | PMID/DOI | Authors (year) | Key Message | Key Results | Key Methods | Study Type | Evidence Quality |
-|---|---|---|---|---|---|---|---|
+| # | PMID/DOI | In Zotero | Authors (year) | Key Message | Key Results | Key Methods | Study Type | Evidence Quality | DOI | Access Link |
+|---|---|---|---|---|---|---|---|---|---|---|
 ```
 
 ### Extra columns for preclinical extraction mode
