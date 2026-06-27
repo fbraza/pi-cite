@@ -7,6 +7,7 @@ import {
   fetchText,
   formatPaperText,
   normalizeDoi,
+  normalizePmcid,
   pickAll,
   pickOne,
   sleep,
@@ -121,6 +122,16 @@ export function parsePubmedArticle(articleXml: string): PaperRecord {
         articleXml,
       ),
     );
+  const pmcid = normalizePmcid(
+    pickOne(
+      /<ArticleId[^>]*IdType=\"pmc\"[^>]*>(.*?)<\/ArticleId>/i,
+      articleXml,
+    ) ??
+      pickOne(
+        /<ArticleId[^>]*IdType=\"pmcid\"[^>]*>(.*?)<\/ArticleId>/i,
+        articleXml,
+      ),
+  );
   const publicationTypes = unique(
     pickAll(
       /<PublicationType[^>]*>([\s\S]*?)<\/PublicationType>/gi,
@@ -147,6 +158,7 @@ export function parsePubmedArticle(articleXml: string): PaperRecord {
   );
   return {
     pmid,
+    pmcid,
     doi,
     title,
     abstract,

@@ -7,9 +7,15 @@ import {
   type LiteratureSearchDisplayEvent,
   type LiteratureSearchDisplaySearch,
 } from "./rendering.ts";
-import { formatPaperText, normalizeDoi, unique } from "./shared.ts";
+import { formatPaperText, normalizeDoi, unique, dedupeKeys } from "./shared.ts";
 import { emitProgress, textResult, type TextToolUpdate } from "./tool-output.ts";
 import type { PaperRecord } from "./types.ts";
+import {
+	getZoteroApiKey,
+	markPapersWithZoteroOwnership,
+	prepareZoteroOwnership,
+	ZOTERO_DEFAULT_INDEX_CAP,
+} from "./zotero.ts";
 
 export const LITERATURE_SEARCH_PARAMS = Type.Object({
   pubmed_query: Type.String({
@@ -44,6 +50,7 @@ export type LiteratureSearchResult = {
   papers: PaperRecord[];
   providers: {
     pubmed: ProviderExecution;
+    zotero?: ProviderExecution;
   };
   searches: LiteratureSearchDisplaySearch[];
   events: LiteratureSearchDisplayEvent[];
@@ -54,25 +61,6 @@ function sourceList(paper: PaperRecord): string[] {
     ...(paper.sources ?? []),
     ...(paper.source ? paper.source.split(";") : []),
   ].map((source) => source.trim()).filter(Boolean));
-}
-
-function normalizedTitle(title: string): string {
-  return title
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
-}
-
-function dedupeKeys(paper: PaperRecord): string[] {
-  const doi = normalizeDoi(paper.doi)?.toLowerCase();
-  const keys = [
-    doi ? `doi:${doi}` : undefined,
-    paper.pmid ? `pmid:${paper.pmid}` : undefined,
-  ];
-  const title = normalizedTitle(paper.title);
-  if (title && paper.year) keys.push(`title-year:${title}:${paper.year}`);
-  return unique(keys);
 }
 
 function mergePapers(existing: PaperRecord, incoming: PaperRecord): PaperRecord {
@@ -138,8 +126,6 @@ export async function searchLiterature(
     emitProgress(onUpdate, text, { events: [...events] });
   };
 
-  emitEvent("Searching PubMed...");
-
   events.push({
     phase: "query_start",
     provider: "pubmed",
@@ -181,24 +167,85 @@ export async function searchLiterature(
   events.push({ phase: "dedupe" });
   emitEvent("Preparing results...");
 
-  const papers = dedupeLiteraturePapers(pubmed.papers);
-  events.push({
-    phase: "complete",
-    count: papers.length,
-  });
-  emitEvent(`Literature search complete: ${papers.length} PubMed ${papers.length === 1 ? "paper" : "papers"}.`);
+  let papers = dedupeLiteraturePapers(pubmed.papers);
+
+  const providers: LiteratureSearchResult["providers"] = {
+    pubmed: {
+      searched: true,
+      count: pubmed.count,
+      query: pubmed.query ?? params.pubmed_query,
+      total: pubmed.total,
+    },
+  };
+
+  // Zotero ownership check: when an API key is configured and PubMed returned
+  // candidates, scan the user's library and flag which candidates they already
+  // own. The library JSON is consumed inside the extension; only the resulting
+  // in_zotero flag reaches the agent's context.
+  const zoteroApiKey = getZoteroApiKey();
+  if (zoteroApiKey && papers.length > 0) {
+    try {
+      events.push({ phase: "zotero_start" });
+      emitEvent("Checking your Zotero library...");
+      const ownership = await prepareZoteroOwnership({
+        apiKey: zoteroApiKey,
+        cap: ZOTERO_DEFAULT_INDEX_CAP,
+        signal,
+        onProgress: ({ items, total }) => {
+          events.push({ phase: "zotero_progress", library_items: items, total });
+          emitEvent(
+            `Reading Zotero library... ${items}${total ? ` of ~${total}` : ""} items`,
+          );
+        },
+      });
+      const marked = markPapersWithZoteroOwnership(papers, ownership.index);
+      const matched = marked.filter((paper) => paper.in_zotero).length;
+      papers = marked;
+      providers.zotero = {
+        searched: true,
+        count: ownership.libraryItems,
+        query: "ownership scan",
+        total: ownership.total,
+      };
+      events.push({
+        phase: "zotero_results",
+        library_items: ownership.libraryItems,
+        matched,
+        total_candidates: papers.length,
+      });
+      emitEvent(
+        `${matched} of ${papers.length} candidates already in your Zotero library.`,
+      );
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      providers.zotero = { searched: false, reason: message };
+      events.push({
+        phase: "query_error",
+        provider: "zotero",
+        query_index: 0,
+        query: "ownership scan",
+        error: message,
+      });
+      emitEvent("Zotero check failed; continuing without ownership flags.");
+    }
+  } else if (zoteroApiKey) {
+    providers.zotero = { searched: false, reason: "No PubMed candidates to check" };
+  }
+
+  events.push({ phase: "complete", count: papers.length });
+  const zoteroMatched = papers.filter((paper) => paper.in_zotero).length;
+  const zoteroNote =
+    providers.zotero?.searched && zoteroMatched > 0
+      ? ` (${zoteroMatched} already in Zotero)`
+      : "";
+  emitEvent(
+    `Literature search complete: ${papers.length} PubMed ${papers.length === 1 ? "paper" : "papers"}${zoteroNote}.`,
+  );
 
   return {
     count: papers.length,
     papers,
-    providers: {
-      pubmed: {
-        searched: true,
-        count: pubmed.count,
-        query: pubmed.query ?? params.pubmed_query,
-        total: pubmed.total,
-      },
-    },
+    providers,
     searches,
     events,
   };

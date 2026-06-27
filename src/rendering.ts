@@ -18,33 +18,43 @@ export type CompactPaperForDisplay = {
   journal?: string;
 };
 
+export type ProviderName = "pubmed" | "zotero";
+
 export type LiteratureSearchDisplayEvent =
   | { phase: "start" }
   | {
       phase: "query_start";
-      provider: "pubmed";
+      provider: ProviderName;
       query_index: number;
       query: string;
     }
   | {
       phase: "query_results";
-      provider: "pubmed";
+      provider: ProviderName;
       query_index: number;
       query: string;
       count: number;
     }
   | {
       phase: "query_error";
-      provider: "pubmed";
+      provider: ProviderName;
       query_index: number;
       query: string;
       error: string;
+    }
+  | { phase: "zotero_start" }
+  | { phase: "zotero_progress"; library_items: number; total?: number }
+  | {
+      phase: "zotero_results";
+      library_items: number;
+      matched: number;
+      total_candidates: number;
     }
   | { phase: "dedupe" }
   | { phase: "complete"; count: number };
 
 export type LiteratureSearchDisplaySearch = {
-  provider: "pubmed";
+  provider: ProviderName;
   query_index: number;
   query: string;
   count: number;
@@ -117,6 +127,7 @@ export function sourceLabel(paper: PaperRecord): string {
       .map((source) => source.trim())
       .filter(Boolean),
   );
+  if (sources.has("zotero")) return "ZT";
   if (sources.has("pubmed")) return "PM";
   return "—";
 }
@@ -136,12 +147,12 @@ export function compactPapersForDisplay(papers: PaperRecord[]): CompactPaperForD
   return papers.map(compactPaperForDisplay);
 }
 
-function providerLabel(provider: "pubmed"): string {
-  return "PubMed";
+function providerLabel(provider: ProviderName): string {
+  return provider === "zotero" ? "Zotero" : "PubMed";
 }
 
-function providerColor(provider: "pubmed"): string {
-  return "success";
+function providerColor(provider: ProviderName): string {
+  return provider === "zotero" ? "accent" : "success";
 }
 
 function pluralize(count: number, singular: string, plural = `${singular}s`): string {
@@ -188,6 +199,7 @@ type LiteratureResultDetails = {
   papers?: PaperRecord[];
   providers?: {
     pubmed?: ProviderSearchSummary;
+    zotero?: ProviderSearchSummary;
   };
   events?: LiteratureSearchDisplayEvent[];
 };
@@ -203,7 +215,10 @@ function renderCollapsedLiteratureResult(details: LiteratureResultDetails, theme
   const prefix = `${color(theme, "success", "✓")} ${color(theme, "toolTitle", "literature_search")}`;
   if (count === undefined) return `${prefix} PubMed papers`;
   if (count === 0) return `${prefix} no PubMed papers found`;
-  return `${prefix} ${count} PubMed ${pluralize(count, "paper")}`;
+  const zoteroRan = Boolean(details.providers?.zotero?.searched);
+  const zoteroMatched = (details.papers ?? []).filter((paper) => paper.in_zotero).length;
+  const note = zoteroRan && zoteroMatched > 0 ? ` · ${zoteroMatched} already in Zotero` : "";
+  return `${prefix} ${count} PubMed ${pluralize(count, "paper")}${note}`;
 }
 
 function renderLiteratureStreamingStatus(details: LiteratureResultDetails, theme?: ThemeLike): string {
@@ -213,7 +228,16 @@ function renderLiteratureStreamingStatus(details: LiteratureResultDetails, theme
     return `${prefix} searching PubMed…`;
   }
   if (event.phase === "query_error") {
-    return `${color(theme, "error", "!")} ${color(theme, "toolTitle", "literature_search")} PubMed failed: ${truncateText(event.error, 96)}`;
+    return `${color(theme, "error", "!")} ${color(theme, "toolTitle", "literature_search")} ${providerLabel(event.provider)} failed: ${truncateText(event.error, 96)}`;
+  }
+  if (event.phase === "zotero_start") {
+    return `${prefix} checking your Zotero library…`;
+  }
+  if (event.phase === "zotero_progress") {
+    return `${prefix} reading Zotero library… ${event.library_items}${event.total ? ` of ~${event.total}` : ""} items`;
+  }
+  if (event.phase === "zotero_results") {
+    return `${prefix} ${event.matched}/${event.total_candidates} candidates already in Zotero`;
   }
   const count = event.count;
   if (count === 0) return `${prefix} no PubMed papers found`;
@@ -251,12 +275,14 @@ export function renderLiteratureSearchResult(
 }
 
 export function renderProviderSearchResult(
-  provider: "pubmed",
+  provider: ProviderName,
   result: ToolRenderResult<ProviderResultDetails>,
   options: RenderOptions,
   theme?: ThemeLike,
 ): Text {
   const providerName = providerLabel(provider);
+  const toolName = provider === "zotero" ? "zotero_search" : "pubmed_search";
+  const providerColorName = providerColor(provider);
   const details = result.details ?? {};
   const papers = compactPapersForDisplay(details.papers ?? []);
   const query = details.query ?? details.params?.query ?? "";
@@ -265,14 +291,14 @@ export function renderProviderSearchResult(
     return terminalText(color(theme, "warning", text));
   }
   if (!options.expanded) {
-    return terminalText(`${color(theme, "success", "✓")} ${color(theme, "toolTitle", "pubmed_search")} ${papers.length} papers`);
+    return terminalText(`${color(theme, "success", "✓")} ${color(theme, "toolTitle", toolName)} ${papers.length} papers`);
   }
   const lines = [
-    `${color(theme, providerColor(provider), "→")} ${color(theme, providerColor(provider), providerName)} q1: ${query}`,
+    `${color(theme, providerColorName, "→")} ${color(theme, providerColorName, providerName)} q1: ${query}`,
     ...papers.slice(0, MAX_STREAMED_PAPERS_PER_QUERY).map((paper) => formatFoundLine(paper, theme)),
   ];
   const hidden = papers.length - Math.min(papers.length, MAX_STREAMED_PAPERS_PER_QUERY);
   if (hidden > 0) lines.push(`  ${color(theme, "dim", "…")} ${hidden} more candidate papers`);
-  lines.push(`${color(theme, "success", "✓")} done: ${papers.length} papers`);
+  lines.push(`${color(theme, providerColorName, "✓")} done: ${papers.length} papers`);
   return terminalText(lines.join("\n"));
 }

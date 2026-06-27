@@ -27,6 +27,31 @@ def _identifier(paper: Dict) -> str:
     return "NA"
 
 
+def _doi_url(doi: str) -> str:
+    doi = (doi or "").strip()
+    if not doi:
+        return ""
+    return f"https://doi.org/{doi}"
+
+
+def _pmc_url(pmcid: str) -> str:
+    pmcid = (pmcid or "").strip().upper()
+    if not pmcid:
+        return ""
+    if not pmcid.startswith("PMC"):
+        pmcid = f"PMC{pmcid}"
+    return f"https://www.ncbi.nlm.nih.gov/pmc/articles/{pmcid}/"
+
+
+def _access_link(paper: Dict) -> str:
+    links = [_doi_url(paper.get("doi") or ""), _pmc_url(paper.get("pmcid") or "")]
+    return " | ".join(link for link in links if link)
+
+
+def _in_zotero(paper: Dict) -> str:
+    return "Yes" if paper.get("in_zotero") else "No"
+
+
 def _truncate(text: str, limit: int = 160) -> str:
     text = " ".join(str(text or "").split())
     if len(text) <= limit:
@@ -48,6 +73,7 @@ def build_table_rows(papers: List[Dict], experiments: List[Dict] | None = None, 
         row = {
             "#": idx,
             "PMID/DOI": _identifier(paper),
+            "In Zotero": _in_zotero(paper),
             "Authors (year)": _authors_year(paper),
             "Key Message": _truncate(paper.get("title") or ""),
             "Key Results": _truncate(paper.get("abstract") or exp.get("key_findings") or ""),
@@ -68,6 +94,8 @@ def build_table_rows(papers: List[Dict], experiments: List[Dict] | None = None, 
                 "Assay/Endpoint": "; ".join(filter(None, [exp.get("assays", ""), exp.get("endpoints", "")])),
                 "Finding Direction": exp.get("key_findings", ""),
             })
+        row["DOI"] = paper.get("doi") or ""
+        row["Access Link"] = _access_link(paper)
         rows.append(row)
     return rows
 

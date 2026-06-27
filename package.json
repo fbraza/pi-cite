@@ -1,7 +1,7 @@
 {
   "name": "@fbraza/pi-cite",
   "version": "0.3.1",
-  "description": "Pi extension with PubMed and literature search tools.",
+  "description": "Pi extension with PubMed, Zotero, and literature search tools.",
   "license": "MIT",
   "type": "module",
   "files": [
@@ -13,7 +13,8 @@
     "pi-package",
     "pi-extension",
     "literature",
-    "pubmed"
+    "pubmed",
+    "zotero"
   ],
   "pi": {
     "extensions": [
