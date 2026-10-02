@@ -91,7 +91,7 @@ test("literature extension registers all expected tools", () => {
 
 	assert.deepEqual(
 		tools.map((tool) => tool.name),
-		["literature_search", "pubmed_search", "zotero_search"],
+		["literature_search", "pubmed_search", "zotero_search", "europe_pmc_fulltext"],
 	);
 });
 

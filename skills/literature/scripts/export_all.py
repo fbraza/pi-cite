@@ -16,11 +16,17 @@ def export_all(
     topic: str = "",
     mode: str = "general",
     experiments: Optional[List[Dict]] = None,
+    full_text_requested: bool = False,
 ) -> Dict:
+    rows = build_table_rows(
+        papers,
+        experiments=experiments,
+        mode=mode,
+        full_text_requested=full_text_requested,
+    )
     os.makedirs(output_dir, exist_ok=True)
 
     synthesis = synthesize_literature(papers, experiments=experiments, topic=topic, mode=mode)
-    rows = build_table_rows(papers, experiments=experiments, mode=mode)
 
     markdown_path = os.path.join(output_dir, "literature_report.md")
     csv_path = os.path.join(output_dir, "paper_summary_table.csv")

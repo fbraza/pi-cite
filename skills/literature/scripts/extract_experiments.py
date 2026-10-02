@@ -6,10 +6,10 @@ Uses keyword-based extraction to identify cell lines, assays, animal models,
 endpoints, and key findings from each paper.
 """
 
-import re
+import csv
 import os
+import re
 from typing import List, Dict, Tuple
-import pandas as pd
 
 
 # ---------------------------------------------------------------------------
@@ -256,8 +256,11 @@ def extract_all_experiments(
     # Save CSV
     os.makedirs(output_dir, exist_ok=True)
     output_file = os.path.join(output_dir, "experiment_extraction.csv")
-    df = pd.DataFrame(experiments)
-    df.to_csv(output_file, index=False, encoding="utf-8")
+    with open(output_file, "w", newline="", encoding="utf-8") as handle:
+        if experiments:
+            writer = csv.DictWriter(handle, fieldnames=experiments[0].keys())
+            writer.writeheader()
+            writer.writerows(experiments)
     print(f"\n  Saved extraction results to {output_file}")
 
     print(f"\n✓ Experiment extraction completed successfully!")

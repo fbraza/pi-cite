@@ -59,7 +59,12 @@ def _truncate(text: str, limit: int = 160) -> str:
     return text[: limit - 1].rstrip() + "…"
 
 
-def build_table_rows(papers: List[Dict], experiments: List[Dict] | None = None, mode: str = "general") -> List[Dict]:
+def build_table_rows(
+    papers: List[Dict],
+    experiments: List[Dict] | None = None,
+    mode: str = "general",
+    full_text_requested: bool = False,
+) -> List[Dict]:
     experiment_map = {}
     for exp in experiments or []:
         key = exp.get("pmid") or exp.get("doi")
@@ -68,6 +73,12 @@ def build_table_rows(papers: List[Dict], experiments: List[Dict] | None = None, 
 
     rows = []
     for idx, paper in enumerate(papers, start=1):
+        if full_text_requested and not str(paper.get("evidence_source") or "").strip():
+            identifier = _identifier(paper)
+            raise ValueError(
+                f"Evidence provenance is required for {identifier} when full_text_requested=True; "
+                "set evidence_source explicitly for every paper"
+            )
         key = paper.get("pmid") or paper.get("doi")
         exp = experiment_map.get(key, {})
         row = {
@@ -96,6 +107,8 @@ def build_table_rows(papers: List[Dict], experiments: List[Dict] | None = None, 
             })
         row["DOI"] = paper.get("doi") or ""
         row["Access Link"] = _access_link(paper)
+        if full_text_requested:
+            row["Evidence Source"] = str(paper["evidence_source"]).strip()
         rows.append(row)
     return rows
 

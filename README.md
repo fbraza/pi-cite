@@ -1,7 +1,7 @@
 # @fbraza/pi-cite
 
 A standalone [Pi](https://pi.dev) extension providing literature-research tools for
-academic workflows. Registers three tools callable by the agent:
+academic workflows. Registers four tools callable by the agent:
 
 - **`literature_search`** — literature workflow search against PubMed using a
   PubMed-ready query (MeSH `[mh]`, `[tiab]`, `[pt]`, substance `[nm]`, and Boolean
@@ -12,6 +12,13 @@ academic workflows. Registers three tools callable by the agent:
 - **`zotero_search`** — keyword search of your Zotero library (title/creators/year,
   and indexed full text when `qmode=everything`); returns metadata and abstracts of
   papers you already own.
+- **`europe_pmc_fulltext`** — resolves one DOI, PMID, or PMCID and retrieves
+  structured scientific section excerpts from Europe PMC open-access JATS.
+  Returns source URLs, OA/license metadata, missing sections, and truncation
+  flags; unavailable text includes a reason and PubMed abstract fallback
+  recommendation. Prose excerpts default to 18,000 characters, with a hard
+  maximum of 24,000. Responses also cap headings at 200 characters and return
+  at most 50 section excerpts, marking any omitted content as truncated.
 
 ## Bundled skill
 
@@ -24,6 +31,19 @@ extension are paired on purpose.
 - `references/` — PubMed query syntax, API reference, and common queries.
 - `scripts/` — Python helpers (`extract_experiments.py`, `synthesis.py`,
   `generate_table.py`, `export_all.py`) invoked by the skill.
+
+Broad reviews use 2–4 focused PubMed queries, with results merged and deduplicated
+by the agent and exact queries/counts recorded in `search_log.md`. Abstracts are
+the default evidence depth. Full text is opt-in: when explicitly requested, the
+skill escalates the 5 most pivotal papers (maximum 10), logs OA provenance and
+fallback reasons, and distinguishes excerpts from a complete full-paper review.
+
+The default report and CSV table stay unchanged. For full-text-requested reports,
+set `evidence_source` explicitly on every paper and call
+`build_table_rows(..., full_text_requested=True)` or
+`export_all(..., full_text_requested=True)` to append an **Evidence Source** column.
+Missing provenance raises an error before export. All bundled Python helpers use
+only the standard library; pandas is not required.
 
 ## Install
 

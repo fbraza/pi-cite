@@ -1,4 +1,5 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { registerEuropePmcFulltextTool } from "./europe-pmc.ts";
 import { registerLiteratureSearchTool } from "./literature-search.ts";
 import { registerPubmedSearchTool } from "./pubmed.ts";
 import { registerZoteroSearchTool } from "./zotero.ts";
@@ -7,4 +8,5 @@ export default function literatureToolsExtension(pi: ExtensionAPI) {
   registerLiteratureSearchTool(pi);
   registerPubmedSearchTool(pi);
   registerZoteroSearchTool(pi);
+  registerEuropePmcFulltextTool(pi);
 }

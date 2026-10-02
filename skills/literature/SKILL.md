@@ -1,7 +1,7 @@
 ---
 name: literature
 description: Unified literature search, verification, and synthesis workflow for scientific questions. Use when any biological claim needs a verified citation, when reviewing a gene/pathway/disease/drug/target, when surveying preclinical evidence for a target in a disease, when checking novelty, or when turning a paper set into a structured hypothesis synthesis.
-allowed-tools: Read, Write, WebFetch, WebSearch, literature_search, pubmed_search, zotero_search
+allowed-tools: Read, Write, WebFetch, WebSearch, literature_search, pubmed_search, zotero_search, europe_pmc_fulltext
 starting-prompt: Conduct a literature review on my research topic with verified citations, structured synthesis, and a per-paper summary table.
 ---
 
@@ -30,6 +30,7 @@ Do not use this skill for:
 - Distinguish human, animal, and in vitro evidence.
 - Weight evidence quality by study design and replication.
 - Use inline numbered citations like `[1]` or `[1, 2]` in narrative synthesis.
+- Ground substantive claims in returned full abstracts or Europe PMC excerpts, never search-result snippets or metadata alone.
 - Never overwrite outputs from a previous literature search.
 - Never write literature-review outputs directly to generic shared paths under `results/`.
 
@@ -37,12 +38,15 @@ Do not use this skill for:
 
 ### Step 1 — Clarify scope
 
-Always clarify:
+Determine:
 - exact claim, topic, target, or disease
 - desired time range
 - species restrictions
 - study type filters
 - whether the task is **general review** or **preclinical extraction mode**
+- whether full text is explicitly requested
+
+Ask at most one concise clarification round, and only for materially missing scope that would change the search. Do not re-ask facts the user supplied. If clarification is unnecessary or unanswered, proceed without blocking using the stated defaults: all dates, species, and study designs; general review mode; and abstract-level evidence.
 
 ### Step 2 — Create a dedicated output folder
 
@@ -81,6 +85,15 @@ When calling `literature_search`:
 - Always construct `pubmed_query` using PubMed-specific syntax from the references below.
 - Use MeSH terms (`[mh]` / `[majr]`), title/abstract terms (`[tiab]`), publication types (`[pt]`), substance names (`[nm]`), date filters, and Boolean logic as appropriate.
 - Do not pass a generic natural-language query as `pubmed_query` when a PubMed/MeSH query can be constructed.
+- Set `fetch_abstracts: true`. Abstracts are the default evidence depth.
+
+For a broad review, decompose the scope into 2–4 focused, PubMed-ready queries. Use synonyms and relevant facets such as mechanism, intervention, outcomes, and study design rather than relying on one oversized query. A narrow claim-verification task may use one focused query. Call `literature_search` separately for each query, then merge and deduplicate results in this order:
+1. DOI
+2. PMID
+3. PMCID
+4. normalized title plus publication year
+
+Record every exact query, its returned count, and the final deduplicated count in `search_log.md`. Separate `literature_search` calls may repeat the read-only Zotero library scan; this is expected and does not change the ownership workflow.
 
 These extension tools are the preferred search path for this skill. Do not fall back to generic `WebFetch` / `WebSearch` first when one of these typed tools fits the task.
 
@@ -93,12 +106,23 @@ Read these references before constructing queries:
 - `references/pubmed_search_syntax.md`
 - `references/pubmed_common_queries.md`
 
+#### Optional full-text escalation
+
+Only retrieve full text when the user explicitly requests it. By default, escalate the 5 most pivotal papers, with a hard cap of 10. Call `europe_pmc_fulltext` once per selected paper, passing exactly one `identifier` and preferring PMCID, then DOI, then PMID; use optional `sections` or `max_chars` only to focus or bound that paper's excerpts. This tool retrieves only Europe PMC open-access JATS and is not a search or batch tool.
+
+- On `status: full_text`, use the returned structured section excerpts. If `truncated` is true, describe the evidence as an **OA full-text excerpt**, not as the complete paper having been read.
+- On `status: unavailable` or tool error, use the full PubMed abstract as fallback and record the reason. Do not substitute generic web retrieval as the primary path.
+- In `search_log.md`, record the identifier used, OA status and license, retrieval URL, returned sections, truncation state, and any fallback reason.
+- For every paper in a full-text-requested report, explicitly set `evidence_source` for table generation, using values such as `Europe PMC OA full-text excerpt`, `PubMed abstract (fallback)`, or `Metadata only—not used for substantive claims`.
+
+Full-text availability must not raise or lower a paper's evidence-quality ranking; rank the study design and evidence itself.
+
 ### Step 4 — Screen and prioritise
 
-- Deduplicate PubMed results.
+- Treat titles and search-result snippets as triage signals only. Use returned full abstracts or requested Europe PMC excerpts as evidence for substantive claims.
 - Use the `in_zotero` flag to distinguish papers you already have from those you still need to acquire. The summary table exposes `In Zotero` (Yes/No) plus `DOI` and `Access Link` columns for the non-owned papers: the DOI URL always, and the PMC full-text URL when a PMCID is available.
 - Prioritise by relevance, recency, and study type.
-- Default to deep reading of the top 20 papers unless the user asks otherwise.
+- Default to detailed synthesis of the top 20 returned abstracts unless the user asks otherwise.
 - For preclinical requests, keep studies with experimental target perturbation evidence.
 
 ### Step 5 — Synthesis
@@ -117,6 +141,8 @@ Use:
 - `scripts/synthesis.py`
 - `scripts/generate_table.py`
 - `scripts/export_all.py`
+
+When full text was not requested, use the scripts' defaults and preserve the exact standard table. When full text was requested, call `build_table_rows(..., full_text_requested=True)` or `export_all(..., full_text_requested=True)`. Opt-in generation requires every paper to have an explicit `evidence_source`; never infer or invent provenance.
 
 For preclinical extraction details, read:
 - `references/preclinical-extraction-guide.md`
@@ -159,6 +185,22 @@ Use concise prose with inline citations.
 ```markdown
 | Experiment Type | Model System | Assay/Endpoint | Finding Direction |
 ```
+
+These columns remain before `DOI` and `Access Link`. Only when full text was explicitly requested, append one final column:
+
+```markdown
+| Evidence Source |
+```
+
+Do not append this column for the default abstract workflow.
+
+## Troubleshooting
+
+- **Too few results:** check field tags and spelling, add established synonyms, and relax one overly narrow facet while keeping the core concept.
+- **Off-topic results:** add a discriminating MeSH or title/abstract concept, split the query by facet, and re-screen the merged set.
+- **Thin synthesis:** verify full abstracts were returned; do not fill gaps from snippets. Run one focused query for the missing mechanism, outcome, or study design.
+- **OA text unavailable:** use the PubMed abstract fallback and log the unavailable/error reason; do not imply full-text review.
+- **Full-text runs are slow:** keep the default top 5, retrieve once per paper, and never exceed 10.
 
 ## Hypothesis synthesis
 
