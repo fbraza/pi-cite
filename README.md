@@ -1,88 +1,42 @@
 # @fbraza/pi-cite
 
-A standalone [Pi](https://pi.dev) extension providing literature-research tools for
-academic workflows. Registers four tools callable by the agent:
-
-- **`literature_search`** — literature workflow search against PubMed using a
-  PubMed-ready query (MeSH `[mh]`, `[tiab]`, `[pt]`, substance `[nm]`, and Boolean
-  logic), with streaming progress and deduplicated results. When a Zotero API key
-  is configured, PubMed candidates are automatically cross-checked against your
-  Zotero library and flagged with `in_zotero` (read-only — no library writes).
-- **`pubmed_search`** — direct PubMed query (MeSH, `[tiab]`, `[pt]`, etc.).
-- **`zotero_search`** — keyword search of your Zotero library (title/creators/year,
-  and indexed full text when `qmode=everything`); returns metadata and abstracts of
-  papers you already own.
-- **`europe_pmc_fulltext`** — resolves one DOI, PMID, or PMCID and retrieves
-  structured scientific section excerpts from Europe PMC open-access JATS.
-  Returns source URLs, OA/license metadata, missing sections, and truncation
-  flags; unavailable text includes a reason and PubMed abstract fallback
-  recommendation. Prose excerpts default to 18,000 characters, with a hard
-  maximum of 24,000. Responses also cap headings at 200 characters and return
-  at most 50 section excerpts, marking any omitted content as truncated.
-
-## Bundled skill
-
-Ships with the **`literature`** skill (`skills/literature/`), which turns these
-tools into an end-to-end review workflow: verified-citation search, per-paper
-experiment extraction, and a structured hypothesis synthesis. Its frontmatter
-declares `allowed-tools` covering the extension's tools above, so the skill and
-extension are paired on purpose.
-
-- `references/` — PubMed query syntax, API reference, and common queries.
-- `scripts/` — Python helpers (`extract_experiments.py`, `synthesis.py`,
-  `generate_table.py`, `export_all.py`) invoked by the skill.
-
-Broad reviews use 2–4 focused PubMed queries, with results merged and deduplicated
-by the agent and exact queries/counts recorded in `search_log.md`. Abstracts are
-the default evidence depth. Full text is opt-in: when explicitly requested, the
-skill escalates the 5 most pivotal papers (maximum 10), logs OA provenance and
-fallback reasons, and distinguishes excerpts from a complete full-paper review.
-
-The default report and CSV table stay unchanged. For full-text-requested reports,
-set `evidence_source` explicitly on every paper and call
-`build_table_rows(..., full_text_requested=True)` or
-`export_all(..., full_text_requested=True)` to append an **Evidence Source** column.
-Missing provenance raises an error before export. All bundled Python helpers use
-only the standard library; pandas is not required.
+A Pi extension and bundled skill for literature research. It searches PubMed and Zotero, retrieves open-access article sections from Europe PMC, and helps turn evidence into structured reviews.
 
 ## Install
 
-Published on npm as `@fbraza/pi-cite`:
+Install for Pi with:
 
 ```bash
-# install into your user pi settings
 pi install npm:@fbraza/pi-cite
+```
 
-# pin a specific version
-pi install npm:@fbraza/pi-cite@0.1.0
+Or load it for one session without changing your settings:
 
-# or try it for the current run only (no settings change)
+```bash
 pi -e npm:@fbraza/pi-cite
 ```
 
-Pi provides the host packages (`@earendil-works/pi-coding-agent`,
-`@earendil-works/pi-tui`, `typebox`) at runtime, so they are declared as
-peer dependencies and are not bundled.
+Set `NCBI_API_KEY` for PubMed rate limits. Set `ZOTERO_API_KEY` to search your Zotero library and flag PubMed results you already own; Zotero access is read-only.
 
-## Develop
+## Features
+
+- **PubMed search** with MeSH, title/abstract, publication-type, and Boolean queries.
+- **Zotero search** by title, creator, year, or indexed full text.
+- **Europe PMC full text** for open-access articles, addressed by DOI, PMID, or PMCID. Returns structured section excerpts with licensing, source, and truncation details.
+- **Literature skill** for focused searches, citation verification, experiment extraction, and evidence-based synthesis. Full-text use is opt-in.
+
+## Example
+
+After installing, ask Pi:
+
+> Find recent preclinical studies of NLRP3 inhibition in Alzheimer’s disease. Search PubMed, check which papers are in my Zotero library, and retrieve Europe PMC sections for the most relevant open-access papers.
+
+The extension provides `literature_search`, `pubmed_search`, `zotero_search`, and `europe_pmc_fulltext` tools for this workflow.
+
+## Development
 
 ```bash
 npm install
-npm test            # run the unit tests
-npm run pack:check  # preview the published tarball contents
+npm test
+npm run pack:check
 ```
-
-## Environment variables
-
-| Variable | Purpose |
-|---|---|
-| `NCBI_API_KEY` / `api_key` env | PubMed rate limit + E-utilities auth |
-| `ZOTERO_API_KEY` | **The only Zotero var you need to set.** Enables the `in_zotero` ownership check in `literature_search` and the `zotero_search` tool. The library user ID is auto-discovered from the key via `/keys/current`, so no ID is required for a personal library. |
-| `ZOTERO_USER_ID` | Optional override for the user ID (auto-discovered otherwise). Only set if `/keys/current` does not return the expected ID. |
-| `ZOTERO_LIBRARY` | `user` (default) or `group`. Set to `group` only to scan a group library instead of your personal one. |
-| `ZOTERO_GROUP_ID` | Group library ID (required only when `ZOTERO_LIBRARY=group` — a key can access many groups, so there is no default). |
-
-For the common case — a personal Zotero library — set just `ZOTERO_API_KEY` and
-you're done. The ownership scan fetches top-level library items (capped at ~2000)
-and matches PubMed candidates by DOI, PMID, PMCID, or title-year. All Zotero
-access is read-only; no papers are ever written to your library.
