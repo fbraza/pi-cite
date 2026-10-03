@@ -22,7 +22,7 @@ Reference: https://github.com/earendil-works/pi/blob/v1.0.1/packages/coding-agen
 
 ## Phase 1 — Pi v1 baseline
 
-Status: complete — awaiting review before Phase 2
+Status: complete
 
 Implemented:
 - Pinned Pi coding-agent and TUI development dependencies to `1.0.1` and TypeBox to the host's `1.3.27`; constrained peer ranges to compatible v1 releases.
@@ -57,7 +57,30 @@ Acceptance:
 
 ## Phase 2 — Structured output contracts
 
-Status: pending
+Status: complete — awaiting review before Phase 3
+
+Implemented:
+- Added `src/output-schemas.ts` with reusable paper/provider schemas, all four tool output schemas, and derived public result types. Existing paper and Europe PMC type import paths remain available.
+- Added schema-aware final result construction: JSON-normalize optional undefined fields, validate the final output, and return typed `structuredContent` alongside unchanged model text and UI details.
+- PubMed and Zotero structured outputs include required query metadata; provider functions and their existing details remain unchanged. Totals remain optional where the existing provider implementation omits them.
+- Literature structured output contains papers, count, and provider outcomes; display previews and event histories remain only in details.
+- Europe PMC uses the full-text/unavailable discriminated union, retaining provenance, excerpts, truncation, and fallback information. Expected unavailability is not an error.
+- Added fixture/schema tests and a real isolated Pi session + QuickJS codemode integration test, with mocked provider HTTP and synthetic issuing assistant history (no live model request or credentials required).
+- Documented the codemode return-shape change and usage in README.
+
+Validation:
+- `npm test`: all 39 tests passed (29 existing plus 10 new).
+- Coverage includes minimal/complete records, empty and identifier-only searches, query filters, optional fields, ownership flags and failed ownership checks, all six Europe PMC unavailable reasons, excerpts/provenance/truncation, malformed totals, and operational failures.
+- Real codemode coverage confirms structured objects from all four tools, discoverable output declarations, unavailable fallback data, failure rejection, and no nested transcript entries.
+- `npm run typecheck`: passed.
+- `npm run pack:check`: passed; 23 packaged files, including the new schema module and excluding tests/development files.
+- `git diff --check`: passed.
+
+Intentional changes and remaining scope:
+- Codemode callers now receive objects, not JSON strings; search callers access `result.papers` instead of parsing a text array.
+- Invalid final data (for example malformed provider totals) now throws an output-contract error instead of returning invalid structured data.
+- Model-facing text, progress updates, UI details, provider request behavior, and tool exposure are otherwise unchanged.
+- Automatic exposure, new rendering behavior, model-facing output budgets, broader integration coverage, and the release version bump remain in their later phases. Nothing has been published.
 
 Work:
 - Define reusable TypeBox paper and result schemas; derive public result types where practical to avoid schema/type drift.

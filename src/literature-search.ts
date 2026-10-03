@@ -8,7 +8,8 @@ import {
   type LiteratureSearchDisplaySearch,
 } from "./rendering.ts";
 import { formatPaperText, normalizeDoi, unique, dedupeKeys } from "./shared.ts";
-import { emitProgress, textResult, type TextToolUpdate } from "./tool-output.ts";
+import { emitProgress, structuredResult, type TextToolUpdate } from "./tool-output.ts";
+import { LITERATURE_SEARCH_OUTPUT, type LiteratureSearchOutput } from "./output-schemas.ts";
 import type { PaperRecord } from "./types.ts";
 import {
 	getZoteroApiKey,
@@ -41,17 +42,7 @@ export const LITERATURE_SEARCH_PARAMS = Type.Object({
 
 export type LiteratureSearchParams = Static<typeof LITERATURE_SEARCH_PARAMS>;
 
-type ProviderExecution =
-  | { searched: true; count: number; query: string; total?: number }
-  | { searched: false; reason: string };
-
-export type LiteratureSearchResult = {
-  count: number;
-  papers: PaperRecord[];
-  providers: {
-    pubmed: ProviderExecution;
-    zotero?: ProviderExecution;
-  };
+export type LiteratureSearchResult = LiteratureSearchOutput & {
   searches: LiteratureSearchDisplaySearch[];
   events: LiteratureSearchDisplayEvent[];
 };
@@ -258,6 +249,7 @@ export function createLiteratureSearchTool() {
     description:
       "Run the literature workflow search against PubMed using a PubMed-ready query (MeSH [mh], title/abstract [tiab], publication type [pt], substance [nm], and Boolean logic).",
     parameters: LITERATURE_SEARCH_PARAMS,
+    outputSchema: LITERATURE_SEARCH_OUTPUT,
     async execute(
       _toolCallId: string,
       params: LiteratureSearchParams,
@@ -265,7 +257,12 @@ export function createLiteratureSearchTool() {
       onUpdate?: TextToolUpdate,
     ) {
       const result = await searchLiterature(params, signal, onUpdate);
-      return textResult(formatPaperText(result.papers), result);
+      const data: LiteratureSearchOutput = {
+        count: result.count,
+        papers: result.papers,
+        providers: result.providers,
+      };
+      return structuredResult(LITERATURE_SEARCH_OUTPUT, formatPaperText(result.papers), data, result);
     },
     renderResult(
       result: Parameters<typeof renderLiteratureSearchResult>[0],

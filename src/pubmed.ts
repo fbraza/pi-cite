@@ -1,7 +1,8 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type, type Static } from "typebox";
 import { renderProviderSearchResult } from "./rendering.ts";
-import { emitProgress, textResult, type TextToolUpdate } from "./tool-output.ts";
+import { emitProgress, structuredResult, type TextToolUpdate } from "./tool-output.ts";
+import { PUBMED_SEARCH_OUTPUT, type PubmedSearchOutput } from "./output-schemas.ts";
 import {
   fetchJson,
   fetchText,
@@ -192,12 +193,8 @@ export async function lookupPubmedIdentifiers(
   return { doi: article?.doi, title: article?.title };
 }
 
-export type PubmedSearchResult = {
-  count: number;
-  papers: PaperRecord[];
-  query?: string;
-  total?: number;
-};
+// The provider may omit query on empty results; the tool always supplies it.
+export type PubmedSearchResult = Omit<PubmedSearchOutput, "query"> & { query?: string };
 
 export async function searchPubmed(
   params: PubmedSearchParams,
@@ -274,6 +271,7 @@ export function createPubmedSearchTool() {
     description:
       "Search PubMed using typed parameters and return metadata with abstracts when available.",
     parameters: PUBMED_SEARCH_PARAMS,
+    outputSchema: PUBMED_SEARCH_OUTPUT,
     async execute(
       _toolCallId: string,
       params: PubmedSearchParams,
@@ -281,7 +279,11 @@ export function createPubmedSearchTool() {
       onUpdate?: TextToolUpdate,
     ) {
       const result = await searchPubmed(params, signal, onUpdate);
-      return textResult(formatPaperText(result.papers), result);
+      const data: PubmedSearchOutput = {
+        ...result,
+        query: result.query ?? normalizePubmedQuery(params.query, params.publication_types, params.date_from, params.date_to),
+      };
+      return structuredResult(PUBMED_SEARCH_OUTPUT, formatPaperText(result.papers), data, result);
     },
     renderResult(
       result: Parameters<typeof renderProviderSearchResult>[1],

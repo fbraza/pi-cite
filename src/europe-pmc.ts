@@ -2,9 +2,30 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type, type Static } from "typebox";
 import {
   emitProgress,
-  textResult,
+  structuredResult,
   type TextToolUpdate,
 } from "./tool-output.ts";
+
+import {
+  EUROPE_PMC_OUTPUT,
+  EUROPE_PMC_SECTIONS,
+  EUROPE_PMC_SECTION_SCHEMA,
+  type EuropePmcSection,
+  type EuropePmcMetadata,
+  type EuropePmcUnavailableReason,
+  type EuropePmcUnavailableResult,
+  type EuropePmcFulltextResult,
+  type EuropePmcResult,
+} from "./output-schemas.ts";
+
+export { EUROPE_PMC_SECTIONS } from "./output-schemas.ts";
+export type {
+  EuropePmcSection,
+  EuropePmcUnavailableReason,
+  EuropePmcUnavailableResult,
+  EuropePmcFulltextResult,
+  EuropePmcResult,
+} from "./output-schemas.ts";
 
 const EUROPE_PMC_API = "https://www.ebi.ac.uk/europepmc/webservices/rest";
 const DEFAULT_MAX_CHARS = 18_000;
@@ -14,16 +35,6 @@ const SEARCH_PAGE_SIZE = 5;
 const MAX_HEADING_CHARS = 200;
 const MAX_RETURNED_SECTIONS = 50;
 
-export const EUROPE_PMC_SECTIONS = [
-  "introduction",
-  "methods",
-  "results",
-  "discussion",
-  "conclusion",
-  "all",
-] as const;
-
-export type EuropePmcSection = (typeof EUROPE_PMC_SECTIONS)[number];
 type BodySection = Exclude<EuropePmcSection, "all">;
 type Identifier = {
   type: "doi" | "pmid" | "pmcid";
@@ -39,14 +50,7 @@ export const EUROPE_PMC_FULLTEXT_PARAMS = Type.Object({
   }),
   sections: Type.Optional(
     Type.Array(
-      Type.Union([
-        Type.Literal("introduction"),
-        Type.Literal("methods"),
-        Type.Literal("results"),
-        Type.Literal("discussion"),
-        Type.Literal("conclusion"),
-        Type.Literal("all"),
-      ]),
+      EUROPE_PMC_SECTION_SCHEMA,
       {
         description:
           "Scientific sections to excerpt (default introduction, methods, results, discussion, conclusion).",
@@ -64,58 +68,6 @@ export const EUROPE_PMC_FULLTEXT_PARAMS = Type.Object({
 });
 
 export type EuropePmcFulltextParams = Static<typeof EUROPE_PMC_FULLTEXT_PARAMS>;
-
-export type EuropePmcUnavailableReason =
-  | "not_found"
-  | "ambiguous_match"
-  | "not_open_access"
-  | "no_pmcid"
-  | "xml_not_available"
-  | "source_too_large";
-
-export type EuropePmcUnavailableResult = {
-  tool: "europe_pmc_fulltext";
-  status: "unavailable";
-  reason: EuropePmcUnavailableReason;
-  recommended_fallback: "pubmed_abstract";
-  identifier: { type: Identifier["type"]; normalized: string };
-  metadata?: ReturnType<typeof recordMetadata>;
-  provenance: {
-    provider: "Europe PMC";
-    api_version: "6.9";
-    search_url: string;
-    full_text_url?: string;
-  };
-};
-
-export type EuropePmcFulltextResult = {
-  tool: "europe_pmc_fulltext";
-  status: "full_text";
-  identifier: { type: Identifier["type"]; normalized: string };
-  metadata: ReturnType<typeof recordMetadata>;
-  sections: Array<{
-    section: BodySection | "other";
-    heading: string;
-    text: string;
-    truncated: boolean;
-  }>;
-  requested_sections: EuropePmcSection[];
-  missing_sections: BodySection[];
-  section_fallback: boolean;
-  truncated: boolean;
-  max_chars: number;
-  returned_chars: number;
-  provenance: {
-    provider: "Europe PMC";
-    api_version: "6.9";
-    search_url: string;
-    full_text_url: string;
-  };
-  urls: { europe_pmc: string; doi?: string; pmc: string };
-};
-
-export type EuropePmcResult =
-  EuropePmcFulltextResult | EuropePmcUnavailableResult;
 
 function parseEuropePmcInput(
   input: Record<string, unknown>,
@@ -233,7 +185,7 @@ function recordMatches(
   return asString(record.pmcid)?.toUpperCase() === identifier.normalized;
 }
 
-function recordMetadata(record: EuropePmcRecord) {
+function recordMetadata(record: EuropePmcRecord): EuropePmcMetadata {
   const journalInfo = record.journalInfo as
     { journal?: { title?: unknown } } | undefined;
   return {
@@ -826,6 +778,7 @@ export function createEuropePmcFulltextTool() {
     description:
       "Retrieve bounded scientific section excerpts from the legal open-access JATS full text of one exactly identified Europe PMC paper. Returns provenance and an abstract fallback recommendation when unavailable.",
     parameters: EUROPE_PMC_FULLTEXT_PARAMS,
+    outputSchema: EUROPE_PMC_OUTPUT,
     async execute(
       _toolCallId: string,
       params: EuropePmcFulltextParams,
@@ -833,7 +786,7 @@ export function createEuropePmcFulltextTool() {
       onUpdate?: TextToolUpdate,
     ) {
       const result = await fetchEuropePmcFulltext(params, signal, onUpdate);
-      return textResult(JSON.stringify(result, null, 2), result);
+      return structuredResult(EUROPE_PMC_OUTPUT, JSON.stringify(result, null, 2), result, result);
     },
   };
 }

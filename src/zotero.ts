@@ -1,7 +1,8 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type, type Static } from "typebox";
 import { renderProviderSearchResult } from "./rendering.ts";
-import { emitProgress, textResult, type TextToolUpdate } from "./tool-output.ts";
+import { emitProgress, structuredResult, type TextToolUpdate } from "./tool-output.ts";
+import { ZOTERO_SEARCH_OUTPUT, type ZoteroSearchOutput } from "./output-schemas.ts";
 import type { PaperRecord } from "./types.ts";
 import {
 	USER_AGENT,
@@ -394,11 +395,7 @@ export function markPapersWithZoteroOwnership(
 	});
 }
 
-export type ZoteroSearchResult = {
-	count: number;
-	papers: PaperRecord[];
-	total?: number;
-};
+export type ZoteroSearchResult = Omit<ZoteroSearchOutput, "query">;
 
 export async function searchZotero(
 	params: ZoteroSearchParams,
@@ -435,6 +432,7 @@ export function createZoteroSearchTool() {
 		description:
 			"Search your Zotero library by keyword (title/creators/year, and indexed full text when qmode=everything). Returns metadata and abstracts of papers you already own.",
 		parameters: ZOTERO_SEARCH_PARAMS,
+		outputSchema: ZOTERO_SEARCH_OUTPUT,
 		async execute(
 			_toolCallId: string,
 			params: ZoteroSearchParams,
@@ -442,7 +440,8 @@ export function createZoteroSearchTool() {
 			onUpdate?: TextToolUpdate,
 		) {
 			const result = await searchZotero(params, signal, onUpdate);
-			return textResult(formatPaperText(result.papers), result);
+			const data: ZoteroSearchOutput = { ...result, query: params.query };
+			return structuredResult(ZOTERO_SEARCH_OUTPUT, formatPaperText(result.papers), data, result);
 		},
 		renderResult(
 			result: Parameters<typeof renderProviderSearchResult>[1],

@@ -35,6 +35,28 @@ After installing, ask Pi:
 
 The extension provides `literature_search`, `pubmed_search`, `zotero_search`, and `europe_pmc_fulltext` tools for this workflow.
 
+## Structured tool results
+
+All four tools declare an output schema. Codemode calls now return **objects**, not JSON strings; do not use `JSON.parse()` on their results:
+
+| Tool | Codemode result |
+|---|---|
+| `pubmed_search` | `{ count, papers, query, total? }`; `query` includes applied filters |
+| `zotero_search` | `{ count, papers, query, total? }` |
+| `literature_search` | `{ count, papers, providers }`; provider outcomes include search/ownership status and failure reasons |
+| `europe_pmc_fulltext` | A `status: "full_text"` or `status: "unavailable"` object, with provenance and excerpt/fallback data |
+
+`count` is the number of returned papers; `total` is optional and included where the provider implementation exposes it. Missing optional fields are omitted from structured output. Literature display events and previews remain in UI `details`, not in the public data object. A Zotero provider's `count` refers to scanned library items, not matched candidate papers.
+
+For example, with codemode enabled:
+
+```js
+const result = await tools.pubmed_search({ query: "systematic review[pt]", max_results: 5 });
+text(result.papers.map(({ pmid, doi, title }) => ({ pmid, doi, title })));
+```
+
+Direct calls retain the existing model-facing JSON text: search tools return the paper array as text, and Europe PMC returns its full result object as text. Progress updates are unchanged. Expected full-text unavailability is a normal result with `recommended_fallback: "pubmed_abstract"`; operational failures reject. Final structured outputs are schema-validated before returning.
+
 ## Development
 
 ```bash
