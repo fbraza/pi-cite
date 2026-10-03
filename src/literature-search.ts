@@ -1,4 +1,5 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { LITERATURE_TOOL_METADATA } from "./tool-metadata.ts";
 import { Type, type Static } from "typebox";
 import { searchPubmed } from "./pubmed.ts";
 import {
@@ -244,10 +245,11 @@ export async function searchLiterature(
 
 export function createLiteratureSearchTool() {
   return {
+    ...LITERATURE_TOOL_METADATA,
     name: "literature_search",
     label: "Literature Search",
     description:
-      "Run the literature workflow search against PubMed using a PubMed-ready query (MeSH [mh], title/abstract [tiab], publication type [pt], substance [nm], and Boolean logic).",
+      "Search PubMed and, when configured, flag papers already in Zotero. Accepts PubMed query syntax.",
     parameters: LITERATURE_SEARCH_PARAMS,
     outputSchema: LITERATURE_SEARCH_OUTPUT,
     async execute(

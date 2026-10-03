@@ -35,6 +35,32 @@ After installing, ask Pi:
 
 The extension provides `literature_search`, `pubmed_search`, `zotero_search`, and `europe_pmc_fulltext` tools for this workflow.
 
+## Automatic tool exposure
+
+The extension checks Pi's **active** tools after session binding:
+
+- **Codemode active:** default literature tools use `codemode` exposure. They are callable from scripts and discoverable under the `literature` namespace, without separate model declarations.
+- **Codemode inactive or unavailable:** default literature tools are activated directly.
+- **Explicit selection:** literature tools explicitly selected at startup or activated later remain active. Pi's global `codemode.mode: "only"` can still hide their direct declarations, as it does for other direct tools.
+
+To enable codemode without restricting which tools are registered, use Pi settings:
+
+```json
+{
+  "defaultTools": ["+codemode"]
+}
+```
+
+The extension does not enable codemode itself or change its global mode. Mid-session activation changes are reconciled before the next agent run. Observed per-tool choices are stored in branch-local `pi-cite-exposure` entries, outside model context, and restored on reload/resume.
+
+CLI/SDK allowlists and exclusions remain authoritative. For example, `--tools codemode` restricts the registry to codemode; it does **not** make literature tools available to scripts. Use the settings example above for normal automatic routing. To explicitly disable a literature tool in both direct and codemode workflows, use a modifier such as `"-pubmed_search"` in `defaultTools`. Removing a tool that is already inactive in codemode from the active set alone cannot express a new disable; use that modifier or a registry exclusion.
+
+An unchanged `+tool` setting does not repeatedly undo an observed manual disable. Explicit later activation can re-enable the tool. Removing a setting override does not erase a previously recorded per-tool choice.
+
+On the first upgrade/reload, already-active literature tools are conservatively preserved as explicit selections: Pi does not expose whether they came from the old extension's defaults. Start a fresh Pi session without explicitly naming literature tools to use the new automatic defaults.
+
+All tools carry read-only, non-destructive, idempotent, open-world annotations. Longer workflow guidance is available to scripts through `describeNamespace("literature")`.
+
 ## Structured tool results
 
 All four tools declare an output schema. Codemode calls now return **objects**, not JSON strings; do not use `JSON.parse()` on their results:

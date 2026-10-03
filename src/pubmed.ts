@@ -1,4 +1,5 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { LITERATURE_TOOL_METADATA } from "./tool-metadata.ts";
 import { Type, type Static } from "typebox";
 import { renderProviderSearchResult } from "./rendering.ts";
 import { emitProgress, structuredResult, type TextToolUpdate } from "./tool-output.ts";
@@ -266,10 +267,11 @@ export async function searchPubmed(
 
 export function createPubmedSearchTool() {
   return {
+    ...LITERATURE_TOOL_METADATA,
     name: "pubmed_search",
     label: "PubMed Search",
     description:
-      "Search PubMed using typed parameters and return metadata with abstracts when available.",
+      "Search PubMed for paper metadata and optional abstracts.",
     parameters: PUBMED_SEARCH_PARAMS,
     outputSchema: PUBMED_SEARCH_OUTPUT,
     async execute(

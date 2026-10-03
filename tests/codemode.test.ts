@@ -31,6 +31,8 @@ const code = `
       if (failures[0].status !== "rejected") throw new Error("Operational failures must reject");
       const declaration = await describeTool("pubmed_search");
       if (!declaration || !declaration.includes("papers")) throw new Error("Missing structured declaration");
+      const namespace = await describeNamespace("literature");
+      if (!namespace || namespace.tools.length !== 4 || !namespace.instructions.includes("JSON.parse")) throw new Error("Missing namespace guidance");
       return { types: [pubmed, zotero, literature, fulltext, unavailable].map(value => typeof value),
         counts: [pubmed.count, zotero.count, literature.count], statuses: [fulltext.status, unavailable.status] };
     `;
@@ -46,7 +48,9 @@ test("Pi codemode receives structured objects from all four literature tools", {
     delete process.env.NCBI_API_KEY;
     process.env.ZOTERO_API_KEY = "test-key";
     process.env.ZOTERO_USER_ID = "42";
-    const settingsManager = SettingsManager.inMemory({ compaction: { enabled: false }, retry: { enabled: false } });
+    const settingsManager = SettingsManager.inMemory({
+      compaction: { enabled: false }, retry: { enabled: false }, defaultTools: ["+codemode"],
+    });
     const resourceLoader = new DefaultResourceLoader({
       cwd: directory,
       agentDir: directory,
@@ -82,10 +86,11 @@ test("Pi codemode receives structured objects from all four literature tools", {
       resourceLoader,
       settingsManager,
       sessionManager: manager,
-      tools: ["codemode", "literature_search", "pubmed_search", "zotero_search", "europe_pmc_fulltext"],
     });
     session = created.session;
     await session.bindExtensions({});
+    assert.ok(!session.getActiveToolNames().some(name => name === "pubmed_search"));
+    assert.equal(session.getAllTools().find(tool => tool.name === "pubmed_search")?.exposure, "codemode");
 
     globalThis.fetch = async input => {
       const url = String(input);

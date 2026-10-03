@@ -1,4 +1,5 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { LITERATURE_TOOL_METADATA } from "./tool-metadata.ts";
 import { Type, type Static } from "typebox";
 import {
   emitProgress,
@@ -773,10 +774,11 @@ export async function fetchEuropePmcFulltext(
 
 export function createEuropePmcFulltextTool() {
   return {
+    ...LITERATURE_TOOL_METADATA,
     name: "europe_pmc_fulltext",
     label: "Europe PMC Full Text",
     description:
-      "Retrieve bounded scientific section excerpts from the legal open-access JATS full text of one exactly identified Europe PMC paper. Returns provenance and an abstract fallback recommendation when unavailable.",
+      "Retrieve bounded Europe PMC open-access excerpts by DOI, PMID, or PMCID, with provenance and availability.",
     parameters: EUROPE_PMC_FULLTEXT_PARAMS,
     outputSchema: EUROPE_PMC_OUTPUT,
     async execute(

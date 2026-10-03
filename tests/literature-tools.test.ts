@@ -82,6 +82,7 @@ function zoteroItemFixture(overrides: Record<string, unknown> = {}): Record<stri
 test("literature extension registers all expected tools", () => {
 	const tools: Array<{ name: string }> = [];
 	const fakePi = {
+		on() { return () => {}; },
 		registerTool(tool: { name: string }) {
 			tools.push(tool);
 		},

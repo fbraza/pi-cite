@@ -1,4 +1,5 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { LITERATURE_TOOL_METADATA } from "./tool-metadata.ts";
 import { Type, type Static } from "typebox";
 import { renderProviderSearchResult } from "./rendering.ts";
 import { emitProgress, structuredResult, type TextToolUpdate } from "./tool-output.ts";
@@ -427,10 +428,11 @@ export async function searchZotero(
 
 export function createZoteroSearchTool() {
 	return {
+		...LITERATURE_TOOL_METADATA,
 		name: "zotero_search",
 		label: "Zotero Search",
 		description:
-			"Search your Zotero library by keyword (title/creators/year, and indexed full text when qmode=everything). Returns metadata and abstracts of papers you already own.",
+			"Search your Zotero library for owned paper metadata and abstracts.",
 		parameters: ZOTERO_SEARCH_PARAMS,
 		outputSchema: ZOTERO_SEARCH_OUTPUT,
 		async execute(

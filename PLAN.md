@@ -57,7 +57,7 @@ Acceptance:
 
 ## Phase 2 — Structured output contracts
 
-Status: complete — awaiting review before Phase 3
+Status: complete
 
 Implemented:
 - Added `src/output-schemas.ts` with reusable paper/provider schemas, all four tool output schemas, and derived public result types. Existing paper and Europe PMC type import paths remain available.
@@ -99,7 +99,31 @@ Acceptance:
 
 ## Phase 3 — Automatic exposure and tool metadata
 
-Status: pending
+Status: complete — awaiting review before Phase 4
+
+Implemented:
+- Added shared `literature` namespace metadata and accurate read-only/non-destructive/idempotent/open-world annotations to all four tool factories. Shortened tool descriptions; longer workflow guidance is discoverable through `describeNamespace("literature")` rather than inlined.
+- Added `src/exposure.ts`: register default-inactive tools before binding, then use the active codemode tool to choose automatic codemode/direct exposure. Explicitly selected tools remain active/direct, subject to Pi's global codemode request projection.
+- Reconcile on session start/tree changes and before the next agent run, never from a loadout hook or during a provider/tool operation. Re-register only when exposure actually changes; preserve unrelated active names and ordering.
+- Persist observed per-tool preferences in versioned, validated, branch-local `pi-cite-exposure` entries excluded from model context. Capture late selections on session shutdown/reload without changing the loadout during shutdown.
+- Respect Pi's filtered registry for CLI/SDK allowlists and exclusions, plus named defaultTools modifiers. Disabled tools stay inactive/direct, preventing codemode callability while permitting explicit later reactivation.
+- Updated README with automatic routing, selection semantics, migration behavior, and namespace discovery.
+
+Validation:
+- `npm test`: all 59 tests passed (39 previous plus 20 new exposure tests).
+- Unit coverage checks pre-bind API safety, idempotence, setting modifiers, manual choices, branch reconstruction, and conservative upgrade behavior.
+- Real isolated Pi sessions cover absent/inactive/active codemode, on/only modes and actual request projection, filtered allowlists/exclusions/no-tools, negative modifiers, activation changes, reload/resume, and unchanged settings after a manual disable. HTTP access is denied in these exposure tests.
+- The real QuickJS codemode test now uses automatic exposure (no explicit literature activation), executes all four tools, and reads namespace instructions through discovery.
+- `npm run typecheck`: passed.
+- `npm run pack:check`: passed; 25 packaged files, excluding tests/development files.
+- `git diff --check`: passed.
+
+Policy details and limitations:
+- Pi does not expose selection provenance. Existing active literature tools at the first upgrade/reload are conservatively treated as explicit selections. Start a fresh Pi session without explicitly naming literature tools for automatic defaults.
+- A removal from the active set cannot signal a new disable when an automatic codemode tool was already inactive. Use a negative defaultTools modifier or registry exclusion to disable that tool's script access explicitly.
+- Removing a settings override does not erase a recorded per-tool choice; an unchanged positive override does not repeatedly undo an observed manual disable.
+- Runtime routing changes take effect at the next reconciliation boundary. No global codemode mode/settings are changed and no codemode tool is activated by this extension.
+- Tool outputs, provider behavior, and rendering remain unchanged. No publication or package version bump was performed.
 
 Work:
 - Group the four tools in a shared `literature` namespace with short descriptions and discoverable instructions.
