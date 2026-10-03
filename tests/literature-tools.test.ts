@@ -403,6 +403,7 @@ test("literature_search marks PubMed candidates already in the Zotero library", 
 		assert.equal(papers[0].doi, "10.1000/example");
 		assert.equal(papers[0].in_zotero, true);
 		assert.equal(papers[0].zotero_key, "ZOTKEY1");
+		assert.ok(result.details.providers.zotero);
 		assert.equal(result.details.providers.zotero.searched, true);
 		assert.ok(updates.some((u) => /already in your Zotero library/.test(u.content[0].text)));
 	} finally {

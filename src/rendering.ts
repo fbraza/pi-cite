@@ -1,13 +1,11 @@
+import type { Theme, ThemeColor, ToolRenderResultOptions } from "@earendil-works/pi-coding-agent";
 import { Text } from "@earendil-works/pi-tui";
 import type { PaperRecord } from "./types.ts";
 
 export const MAX_STREAMED_PAPERS_PER_QUERY = 5;
 export const MAX_EXPANDED_PAPER_PREVIEW = 5;
 
-type ThemeLike = {
-  fg?: (color: string, text: string) => string;
-  bold?: (text: string) => string;
-};
+type ThemeLike = Partial<Pick<Theme, "fg" | "bold">>;
 
 export type CompactPaperForDisplay = {
   first_author: string;
@@ -65,7 +63,7 @@ function terminalText(text: string): Text {
   return new Text(text, 0, 0);
 }
 
-function color(theme: ThemeLike | undefined, colorName: string, text: string): string {
+function color(theme: ThemeLike | undefined, colorName: ThemeColor, text: string): string {
   try {
     return theme?.fg ? theme.fg(colorName, text) : text;
   } catch {
@@ -151,7 +149,7 @@ function providerLabel(provider: ProviderName): string {
   return provider === "zotero" ? "Zotero" : "PubMed";
 }
 
-function providerColor(provider: ProviderName): string {
+function providerColor(provider: ProviderName): ThemeColor {
   return provider === "zotero" ? "accent" : "success";
 }
 
@@ -179,7 +177,7 @@ export function formatPaperPreviewLine(
   return `  ${color(theme, "success", `${index + 1}.`)} ${paper.first_author}${year} — ${title}`;
 }
 
-type RenderOptions = { expanded?: boolean; isPartial?: boolean };
+type RenderOptions = Partial<ToolRenderResultOptions>;
 
 type TextContentResult = { type: string; text?: string };
 

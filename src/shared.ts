@@ -2,8 +2,8 @@ import type { PaperRecord } from "./types.ts";
 
 export const USER_AGENT = "research-skills-literature-tools/0.1 (+https://github.com/fbraza/research-skills)";
 
-export function unique<T>(items: T[]): T[] {
-	return [...new Set(items.filter((item) => item !== undefined && item !== null && item !== ""))];
+export function unique<T>(items: T[]): NonNullable<T>[] {
+	return [...new Set(items.filter((item): item is NonNullable<T> => item !== undefined && item !== null && item !== ""))];
 }
 
 export function sleep(ms: number, signal?: AbortSignal): Promise<void> {

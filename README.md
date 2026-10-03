@@ -4,6 +4,8 @@ A Pi extension and bundled skill for literature research. It searches PubMed and
 
 ## Install
 
+Requires Pi **1.0.1 or later within v1** and Node.js **22.19.0 or later**. Pi supplies the host packages and TypeBox at runtime; they are not bundled by this extension.
+
 Install for Pi with:
 
 ```bash
@@ -36,7 +38,10 @@ The extension provides `literature_search`, `pubmed_search`, `zotero_search`, an
 ## Development
 
 ```bash
-npm install
+npm ci
 npm test
+npm run typecheck
 npm run pack:check
 ```
+
+Development is pinned to Pi and Pi TUI **1.0.1**, with TypeBox **1.3.27** to match that host. Type checking covers `src/` and `tests/` without generating build files. The test suite also requires `python3` for the bundled literature scripts.
