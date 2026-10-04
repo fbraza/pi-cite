@@ -44,6 +44,24 @@ function unavailable(reason: EuropePmcUnavailableReason): EuropePmcUnavailableRe
   };
 }
 
+test("model-output artifacts are visible without confusing them with returned-excerpt truncation", () => {
+  const model_output = { truncated: true as const, max_bytes: 32768, original_bytes: 100000, full_result_bytes: 100000, full_result_path: "/tmp/pi-cite-evidence-test/result.json" };
+  const renderers = [
+    (options: typeof collapsed) => renderProviderSearchResult("pubmed", { details: { count: 1, papers: [paper], model_output } }, options),
+    (options: typeof collapsed) => renderProviderSearchResult("zotero", { details: { count: 1, papers: [paper], model_output } }, options),
+    (options: typeof collapsed) => renderLiteratureSearchResult({ details: { count: 1, papers: [paper], model_output } }, options),
+    (options: typeof collapsed) => renderEuropePmcFulltextResult({ details: { ...fulltextFixture(), model_output } }, options),
+    (options: typeof collapsed) => renderEuropePmcFulltextResult({ details: { ...unavailable("not_open_access"), model_output } }, options),
+  ];
+  for (const renderer of renderers) {
+    assert.match(text(renderer(collapsed)), /model preview truncated/);
+    const output = text(renderer(expanded));
+    assert.match(output, /Model preview truncated; complete JSON:/);
+    assert.match(output, /\/tmp\/pi-cite-evidence-test\/result.json/);
+    assert.doesNotMatch(output, /Returned excerpts are truncated/);
+  }
+});
+
 test("all tool factories forward context-only failures and argument fallbacks without success markers", () => {
   for (const tool of [createPubmedSearchTool(), createZoteroSearchTool(), createLiteratureSearchTool(), createEuropePmcFulltextTool()]) {
     for (const options of [collapsed, expanded, { expanded: true, isPartial: true }]) {

@@ -1,3 +1,4 @@
+import { evidenceResult } from "./evidence-output.ts";
 import { LITERATURE_TOOL_METADATA } from "./tool-metadata.ts";
 import { Type, type Static } from "typebox";
 import { searchPubmed } from "./pubmed.ts";
@@ -8,7 +9,7 @@ import {
   type LiteratureSearchDisplaySearch,
 } from "./rendering.ts";
 import { formatPaperText, normalizeDoi, unique, dedupeKeys } from "./shared.ts";
-import { emitProgress, structuredResult, type TextToolUpdate } from "./tool-output.ts";
+import { emitProgress, type TextToolUpdate } from "./tool-output.ts";
 import { LITERATURE_SEARCH_OUTPUT, type LiteratureSearchOutput } from "./output-schemas.ts";
 import type { PaperRecord } from "./types.ts";
 import {
@@ -208,6 +209,7 @@ export async function searchLiterature(
         `${matched} of ${papers.length} candidates already in your Zotero library.`,
       );
     } catch (error) {
+      if (signal?.aborted) throw new Error("Request aborted");
       const message = error instanceof Error ? error.message : String(error);
       providers.zotero = { searched: false, reason: message };
       events.push({
@@ -223,6 +225,7 @@ export async function searchLiterature(
     providers.zotero = { searched: false, reason: "No PubMed candidates to check" };
   }
 
+  if (signal?.aborted) throw new Error("Request aborted");
   events.push({ phase: "complete", count: papers.length });
   const zoteroMatched = papers.filter((paper) => paper.in_zotero).length;
   const zoteroNote =
@@ -263,7 +266,7 @@ export function createLiteratureSearchTool() {
         papers: result.papers,
         providers: result.providers,
       };
-      return structuredResult(LITERATURE_SEARCH_OUTPUT, formatPaperText(result.papers), data, result);
+      return evidenceResult(LITERATURE_SEARCH_OUTPUT, formatPaperText(result.papers), data, result, { signal });
     },
     renderResult(
       result: Parameters<typeof renderLiteratureSearchResult>[0],

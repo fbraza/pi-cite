@@ -1,7 +1,8 @@
+import { evidenceResult } from "./evidence-output.ts";
 import { LITERATURE_TOOL_METADATA } from "./tool-metadata.ts";
 import { Type, type Static } from "typebox";
 import { renderProviderSearchResult } from "./rendering.ts";
-import { emitProgress, structuredResult, type TextToolUpdate } from "./tool-output.ts";
+import { emitProgress, type TextToolUpdate } from "./tool-output.ts";
 import { PUBMED_SEARCH_OUTPUT, type PubmedSearchOutput } from "./output-schemas.ts";
 import {
   fetchJson,
@@ -11,7 +12,6 @@ import {
   normalizePmcid,
   pickAll,
   pickOne,
-  sleep,
   unique,
   xmlDecode,
 } from "./shared.ts";
@@ -219,7 +219,7 @@ export async function searchPubmed(
   esearchUrl.searchParams.set("retmax", String(maxResults));
   esearchUrl.searchParams.set("sort", params.sort ?? "relevance");
   esearchUrl.searchParams.set("term", query);
-  const hasApiKey = addNcbiApiKeyParam(esearchUrl, params.api_key);
+  addNcbiApiKeyParam(esearchUrl, params.api_key);
   emitProgress(onUpdate, `Searching PubMed for: ${params.query}`);
   const esearch = await fetchJson<{
     esearchresult?: { idlist?: string[]; count?: string };
@@ -236,7 +236,6 @@ export async function searchPubmed(
     }));
     return { count: papers.length, papers, query };
   }
-  const rateLimitMs = hasApiKey ? 120 : 350;
   const batchSize = 50;
   const papers: PaperRecord[] = [];
   for (let start = 0; start < ids.length; start += batchSize) {
@@ -254,7 +253,6 @@ export async function searchPubmed(
     addNcbiApiKeyParam(efetchUrl, params.api_key);
     const xml = await fetchText(efetchUrl.toString(), signal);
     papers.push(...parsePubmedArticles(xml));
-    if (start + batchSize < ids.length) await sleep(rateLimitMs, signal);
   }
   return {
     count: papers.length,
@@ -284,7 +282,7 @@ export function createPubmedSearchTool() {
         ...result,
         query: result.query ?? normalizePubmedQuery(params.query, params.publication_types, params.date_from, params.date_to),
       };
-      return structuredResult(PUBMED_SEARCH_OUTPUT, formatPaperText(result.papers), data, result);
+      return evidenceResult(PUBMED_SEARCH_OUTPUT, formatPaperText(result.papers), data, result, { signal });
     },
     renderResult(
       result: Parameters<typeof renderProviderSearchResult>[1],

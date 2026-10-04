@@ -49,6 +49,8 @@ To enable codemode without restricting the tool registry, use Pi settings:
 
 Search calls return structured objects; access `result.papers` directly.
 
+Large direct results provide evidence previews and a path to complete JSON. Follow that path with `read` or `bash` before relying on omitted evidence; copy the file into your review folder if you need to keep it.
+
 ## Development
 
 ```bash

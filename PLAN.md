@@ -141,7 +141,7 @@ Acceptance:
 
 ## Phase 4 — Rendering correctness and consistency
 
-Status: complete — approved for commit
+Status: complete — committed and pushed as ff48d55
 
 Implemented:
 - Forward renderer context from all four factories. Honor context-only `isError` (Pi's interactive path) and result error flags (including HTML); failed calls never receive generated success markers, even with partial or stale success details.
@@ -183,7 +183,7 @@ Acceptance:
 
 ## Pre-Phase-5 cleanup — approved review recommendations
 
-Status: complete — approved for inclusion with the Phase 4 commit
+Status: complete — included in ff48d55
 
 Implemented:
 - Fix `sleep()` to remove its abort listener after normal completion and cancellation, clear the timer on cancellation, and avoid scheduling/attaching anything for a pre-aborted signal. Preserve the existing `Error("Request aborted")` rejection contract.
@@ -202,12 +202,42 @@ Validation:
 
 Scope:
 - No provider rewrite, new configuration API, dependency, formatter, test harness, or renderer abstraction.
-- Group these changes with Phase 4 in the approved commit. No version bump or publication was performed.
-- Phase 5 has not begun.
+- Included these changes with Phase 4 in ff48d55. No version bump or publication was performed.
+- Phase 5 had not begun at this checkpoint.
 
 ## Phase 5 — Bounded evidence and codemode workflow
 
-Status: pending
+Status: complete — approved for commit and push; Phase 6 remains pending
+
+Implemented:
+- Add `src/evidence-output.ts` and use it for all four final tool results. Validate complete structured data before any artifact write; retain the existing output schemas, complete structured objects, and UI evidence.
+- Bound successful final model content to 32 KiB measured in UTF-8, including provider warnings/retrieval instructions. Small primary evidence text is unchanged; nonfatal literature provider outcomes also reach the model in a separate warning text block.
+- Large results contain valid JSON evidence previews with aggregate/individual truncation distinctions, original/full-result byte counts, total/shown record counts, and an actual complete JSON path. Prose is labeled `abstract_excerpt`/`text_excerpt`; descriptive metadata/arrays may be shortened. Citation IDs, URLs, licenses, and warnings are retained verbatim up to 1024 serialized bytes per field or explicitly omitted, never rendered as plausible shortened identifiers/provenance.
+- Write complete normalized structured results (not UI histories) to unique OS-temporary `pi-cite-evidence-*` directories. POSIX directory/file permissions are 0700/0600. Remove directories after failed/cancelled writes or preview-construction failure. Successful artifacts deliberately survive shutdown/reload for transcript retrieval; users must copy them into review folders for durable retention.
+- Render model-preview truncation notes and expanded artifact paths separately from retrieval-excerpt truncation and UI-preview omissions.
+- Add `src/request-gate.ts`: one FIFO lane per provider, held through body consumption. Shared NCBI pacing covers ESearch, EFetch, and identifier lookup (350 ms without a key, 120 ms with one; mixed intervals are conservative). Honor NCBI/Europe PMC Retry-After seconds/HTTP dates and the longest Zotero Backoff/Retry-After. Preserve failure outcomes and add no retries.
+- Queue/backoff waits are abortable, cancelled waiters release only their own slot, and fetches receive the signal. Re-throw ownership-check cancellation instead of presenting a successful unchecked literature search. Remove redundant per-call PubMed sleeps now covered by shared pacing.
+- Add `references/codemode-workflows.md`, linked from the bundled skill: two-call batches with Promise.allSettled, multi-identifier deduplication (including bridging records), source/ownership preservation, complete result saves through write, small evidence projections, and opt-in selective full text. Clarify repeated ownership scans and small-state-only codemode storage.
+- Keep README usage-focused; put operational/migration detail in CHANGELOG.md and skill references. No dependencies, schema additions, new tools, settings changes, or model requests were introduced.
+
+Validation:
+- `npm test`: all 111 tests passed (82 previous plus 29 new Phase 5 tests).
+- Output tests cover all result schemas, exact UTF-8 boundaries, emoji/CJK and JSON escaping, huge metadata and single records, identifiers/warnings, complete artifacts and unchanged structured data, private/unique paths, explicit retention/deletion, invalid data, write failures, cancellation, and preview-failure cleanup.
+- Gate/provider tests cover FIFO body-consumption concurrency, differing intervals, shared backoff, failure recovery, queued/backoff/pre-aborted/in-flight cancellation, listener cleanup, real PubMed/Zotero/Europe PMC call paths, and ownership cancellation propagation with HTTP mocked.
+- Real isolated Pi direct/QuickJS integration exercises all four large tools, verifies the byte budget and complete structured/JSON evidence, retrieves an artifact using Pi's actual read tool, saves complete nested evidence through write, retains success alongside a failure via Promise.allSettled, and confirms artifact survival after session disposal. No live model/provider requests or credentials are required.
+- Execute both bundled workflow examples with deterministic tool doubles, checking two-call concurrency, bridging-ID deduplication, source/ownership preservation, failure retention, small storage, and unavailable full-text data without automatic fallback retrieval.
+- Existing Python extraction/table/export compatibility tests and renderer/HTML/session suites pass. New renderer coverage distinguishes artifact/model truncation from excerpt truncation.
+- `npm run typecheck`: passed.
+- `npm run pack:check`: passed; 29 packaged files, including two new source modules and the skill reference, excluding tests/development files.
+- `git diff --check`: passed.
+
+Intentional changes and remaining risks:
+- Successful oversized calls now have a local filesystem side effect, including nested codemode calls whose structured data stays complete. Zotero access itself remains read-only; artifacts can contain private library metadata. Disk errors reject the result rather than silently losing retrievable evidence.
+- Successful temp files are not automatically removed by this extension and can accumulate. Their availability after OS cleanup is not guaranteed; copy desired evidence, and explicitly delete scratch directories when no longer needed. Abrupt process termination cannot guarantee failure cleanup.
+- Scheduling is per loaded module instance, not cross-process or durable across reloads. It bounds provider HTTP concurrency, not total queued call count. Large scans/long backoff can outlast a codemode deadline; examples limit submission to two calls at a time. No ownership cache or new request timeout policy was added.
+- The byte limit applies to successful final data content, not emitted progress or Pi-generated thrown-error text. Complete structured evidence and session/UI details are not size-capped.
+- Tests exercised Node.js 24 locally; the declared minimum Node version and live provider quotas were not separately tested. No manual live-terminal/browser review was performed.
+- Phase 5 was approved for commit and push. No version bump, publication, or Phase 6 work was performed.
 
 Work:
 - Define an explicit model-facing output budget, including multibyte text.

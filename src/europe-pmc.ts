@@ -1,9 +1,10 @@
+import { createRequestGate, retryDelayMs } from "./request-gate.ts";
+import { evidenceResult } from "./evidence-output.ts";
 import { LITERATURE_TOOL_METADATA } from "./tool-metadata.ts";
 import { renderEuropePmcFulltextResult } from "./rendering.ts";
 import { Type, type Static } from "typebox";
 import {
   emitProgress,
-  structuredResult,
   type TextToolUpdate,
 } from "./tool-output.ts";
 
@@ -29,6 +30,7 @@ export type {
 } from "./output-schemas.ts";
 
 const EUROPE_PMC_API = "https://www.ebi.ac.uk/europepmc/webservices/rest";
+const europePmcRequests = createRequestGate();
 const DEFAULT_MAX_CHARS = 18_000;
 const HARD_MAX_CHARS = 24_000;
 const MAX_XML_BYTES = 5 * 1024 * 1024;
@@ -247,14 +249,13 @@ async function providerFetch(
     const message = error instanceof Error ? error.message : String(error);
     throw new Error(`Europe PMC ${operation} request failed: ${message}`);
   }
-  if (response.status === 429)
-    throw new Error(
-      `Europe PMC ${operation} request was rate limited (HTTP 429); retry later`,
-    );
-  if (response.status >= 500)
-    throw new Error(
-      `Europe PMC ${operation} service error (HTTP ${response.status}); retry later`,
-    );
+  europePmcRequests.defer(retryDelayMs(response.headers.get("Retry-After")));
+  if (response.status === 429 || response.status >= 500) {
+    await response.body?.cancel().catch(() => {});
+    throw new Error(response.status === 429
+      ? `Europe PMC ${operation} request was rate limited (HTTP 429); retry later`
+      : `Europe PMC ${operation} service error (HTTP ${response.status}); retry later`);
+  }
   return response;
 }
 
@@ -647,24 +648,25 @@ export async function fetchEuropePmcFulltext(
     onUpdate,
     `Resolving Europe PMC paper: ${identifier.normalized}`,
   );
-  const searchResponse = await providerFetch(
-    searchUrl.toString(),
-    signal,
-    "search",
-  );
-  if (searchResponse.status === 404)
-    return unavailable("not_found", identifier, searchUrl.toString());
-  if (!searchResponse.ok)
-    throw new Error(
-      `Europe PMC search request failed (HTTP ${searchResponse.status})`,
-    );
-  let payload: unknown;
-  try {
-    payload = await searchResponse.json();
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    throw new Error(`Europe PMC returned malformed search JSON: ${message}`);
-  }
+  const notFound = Symbol("not_found");
+  const payload: unknown = await europePmcRequests.run(async () => {
+    const response = await providerFetch(searchUrl.toString(), signal, "search");
+    if (response.status === 404) {
+      await response.body?.cancel().catch(() => {});
+      return notFound;
+    }
+    if (!response.ok) {
+      await response.body?.cancel().catch(() => {});
+      throw new Error(`Europe PMC search request failed (HTTP ${response.status})`);
+    }
+    try {
+      return await response.json();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      throw new Error(`Europe PMC returned malformed search JSON: ${message}`);
+    }
+  }, { signal });
+  if (payload === notFound) return unavailable("not_found", identifier, searchUrl.toString());
   if (!payload || typeof payload !== "object")
     throw new Error("Europe PMC returned malformed search payload");
   const searchPayload = payload as Record<string, unknown>;
@@ -720,8 +722,19 @@ export async function fetchEuropePmcFulltext(
     onUpdate,
     `Retrieving Europe PMC open-access full text: ${pmcid}`,
   );
-  const xmlResponse = await providerFetch(fullTextUrl, signal, "full-text");
-  if (xmlResponse.status === 404)
+  const raw = await europePmcRequests.run(async () => {
+    const response = await providerFetch(fullTextUrl, signal, "full-text");
+    if (response.status === 404) {
+      await response.body?.cancel().catch(() => {});
+      return undefined;
+    }
+    if (!response.ok) {
+      await response.body?.cancel().catch(() => {});
+      throw new Error(`Europe PMC full-text request failed (HTTP ${response.status})`);
+    }
+    return await readBoundedXml(response);
+  }, { signal });
+  if (raw === undefined)
     return unavailable(
       "xml_not_available",
       identifier,
@@ -729,11 +742,6 @@ export async function fetchEuropePmcFulltext(
       record,
       fullTextUrl,
     );
-  if (!xmlResponse.ok)
-    throw new Error(
-      `Europe PMC full-text request failed (HTTP ${xmlResponse.status})`,
-    );
-  const raw = await readBoundedXml(xmlResponse);
   if (raw.tooLarge)
     return unavailable(
       "source_too_large",
@@ -788,7 +796,7 @@ export function createEuropePmcFulltextTool() {
       onUpdate?: TextToolUpdate,
     ) {
       const result = await fetchEuropePmcFulltext(params, signal, onUpdate);
-      return structuredResult(EUROPE_PMC_OUTPUT, JSON.stringify(result, null, 2), result, result);
+      return evidenceResult(EUROPE_PMC_OUTPUT, JSON.stringify(result, null, 2), result, result, { signal });
     },
     renderResult(
       result: Parameters<typeof renderEuropePmcFulltextResult>[0],

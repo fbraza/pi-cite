@@ -1,6 +1,7 @@
 import type { Theme, ThemeColor, ToolRenderers, ToolRenderResultOptions } from "@earendil-works/pi-coding-agent";
 import { stripTerminalSequences, truncateToWidth, visibleWidth, wrapTextWithAnsi, type Component } from "@earendil-works/pi-tui";
 import type { PaperRecord } from "./types.ts";
+import type { ModelOutputDetails } from "./evidence-output.ts";
 import type { EuropePmcResult, EuropePmcUnavailableReason } from "./output-schemas.ts";
 
 export const MAX_STREAMED_PAPERS_PER_QUERY = 5;
@@ -252,7 +253,9 @@ type ProviderSearchSummary = {
   reason?: string;
 };
 
-type LiteratureResultDetails = {
+type OutputDisplayDetails = { model_output?: ModelOutputDetails };
+
+type LiteratureResultDetails = OutputDisplayDetails & {
   count?: number;
   papers?: PaperRecord[];
   providers?: {
@@ -262,7 +265,7 @@ type LiteratureResultDetails = {
   events?: LiteratureSearchDisplayEvent[];
 };
 
-type ProviderResultDetails = {
+type ProviderResultDetails = OutputDisplayDetails & {
   count?: number;
   total?: number;
   papers?: PaperRecord[];
@@ -310,6 +313,14 @@ function missingDetails(toolName: string, result: ToolRenderResult<unknown>, opt
     if (text) lines.push(truncateText(text, 800));
   }
   return lines.join("\n");
+}
+
+function withOutputNotice(text: string, details: OutputDisplayDetails, options: RenderOptions, theme?: ThemeLike): string {
+  if (!details.model_output?.truncated) return text;
+  const note = options.expanded
+    ? `Model preview truncated; complete JSON: ${displayText(details.model_output.full_result_path)}`
+    : " · model preview truncated";
+  return `${text}${options.expanded ? "\n" : ""}${color(theme, "warning", note)}`;
 }
 
 function literatureCount(details: LiteratureResultDetails): number | undefined {
@@ -380,7 +391,7 @@ export function renderLiteratureSearchResult(
       const warning = ownershipWarning(details);
       if (warning) lines.push(color(theme, "warning", `Zotero ownership check: ${truncateText(warning, 240)}`));
     }
-    return lines.join("\n");
+    return withOutputNotice(lines.join("\n"), details, options, theme);
   }, context);
 }
 
@@ -406,7 +417,7 @@ export function renderProviderSearchResult(
     const count = details.count ?? details.papers?.length;
     if (count === undefined) return missingDetails(toolName, result, options, theme, query);
     if (!options.expanded) {
-      return `${color(theme, "success", "✓")} ${color(theme, "toolTitle", toolName)} ${count} ${pluralize(count, "paper")}`;
+      return withOutputNotice(`${color(theme, "success", "✓")} ${color(theme, "toolTitle", toolName)} ${count} ${pluralize(count, "paper")}`, details, options, theme);
     }
     const papers = details.papers ?? [];
     const lines = [
@@ -416,7 +427,7 @@ export function renderProviderSearchResult(
     const hidden = papers.length - Math.min(papers.length, MAX_STREAMED_PAPERS_PER_QUERY);
     if (hidden > 0) lines.push(`  ${color(theme, "dim", "…")} ${hidden} more candidate papers`);
     lines.push(`${color(theme, "success", "✓")} done: ${count} ${pluralize(count, "paper")}`);
-    return lines.join("\n");
+    return withOutputNotice(lines.join("\n"), details, options, theme);
   }, context);
 }
 
@@ -429,7 +440,7 @@ const UNAVAILABLE_LABELS: Record<EuropePmcUnavailableReason, string> = {
   source_too_large: "Full-text XML exceeds the retrieval size limit",
 };
 
-type EuropePmcDisplayDetails = Partial<EuropePmcResult>;
+type EuropePmcDisplayDetails = Partial<EuropePmcResult> & OutputDisplayDetails;
 
 function europePmcMetadataLines(details: EuropePmcDisplayDetails, theme?: ThemeLike): string[] {
   const metadata = details.metadata;
@@ -470,7 +481,7 @@ export function renderEuropePmcFulltextResult(
         lines.push(...europePmcMetadataLines(details, theme));
         if (details.recommended_fallback === "pubmed_abstract") lines.push("fallback: PubMed abstract (not fetched)");
       }
-      return lines.join("\n");
+      return withOutputNotice(lines.join("\n"), details, options, theme);
     }
     if (details.status !== "full_text") return missingDetails("europe_pmc_fulltext", result, options, theme);
     const sections = details.sections ?? [];
@@ -492,6 +503,6 @@ export function renderEuropePmcFulltextResult(
         lines.push(color(theme, "dim", "UI preview only; complete returned excerpts are in the tool result."));
       }
     }
-    return lines.join("\n");
+    return withOutputNotice(lines.join("\n"), details, options, theme);
   }, context);
 }

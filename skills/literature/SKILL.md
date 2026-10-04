@@ -1,7 +1,7 @@
 ---
 name: literature
 description: Unified literature search, verification, and synthesis workflow for scientific questions. Use when any biological claim needs a verified citation, when reviewing a gene/pathway/disease/drug/target, when surveying preclinical evidence for a target in a disease, when checking novelty, or when turning a paper set into a structured hypothesis synthesis.
-allowed-tools: Read, Write, WebFetch, WebSearch, literature_search, pubmed_search, zotero_search, europe_pmc_fulltext
+allowed-tools: Read, Write, WebFetch, WebSearch, codemode, literature_search, pubmed_search, zotero_search, europe_pmc_fulltext
 starting-prompt: Conduct a literature review on my research topic with verified citations, structured synthesis, and a per-paper summary table.
 ---
 
@@ -93,11 +93,15 @@ For a broad review, decompose the scope into 2–4 focused, PubMed-ready queries
 3. PMCID
 4. normalized title plus publication year
 
-Record every exact query, its returned count, and the final deduplicated count in `search_log.md`. Separate `literature_search` calls may repeat the read-only Zotero library scan; this is expected and does not change the ownership workflow.
+Record every exact query, its returned count, provider warnings/failures, and the final deduplicated count in `search_log.md`. When codemode is active, read `references/codemode-workflows.md`: batch at most two queries at a time with `Promise.allSettled`, consume structured objects directly, deduplicate using all available identifiers, save complete results through the `write` tool, and print only selected evidence. Keep only small state such as selected IDs or a saved path in `store()`.
+
+Separate `literature_search` calls repeat the read-only Zotero library scan; no ownership cache is implied. Avoid redundant scans and use `pubmed_search` when ownership checking is specifically not needed. The extension serializes requests per provider and honors shared pacing/backoff within its loaded runtime; this is not a cross-process quota or permission to issue unlimited parallel calls.
+
+Direct-call final text is bounded to 32 KiB in UTF-8 bytes. If `model_output.truncated` is present, follow `model_output.full_result_path` to the complete JSON result using `read` (offset/limit) or `bash` projection, then save required evidence in the review folder. `abstract_excerpt`/`text_excerpt` and shortened metadata are previews, not full evidence; read explicitly omitted identifiers/URLs/warnings from the complete file before citing. Structured codemode data remains complete. Successful scratch files survive session shutdown but may be removed by the OS; copy them for durable retention.
 
 These extension tools are the preferred search path for this skill. Do not fall back to generic `WebFetch` / `WebSearch` first when one of these typed tools fits the task.
 
-When the `ZOTERO_API_KEY` environment variable is set, `literature_search` automatically cross-checks PubMed candidates against the user's Zotero library after the PubMed search and flags papers already owned (`in_zotero: true`, with the matching `zotero_key`). The full library is fetched once (top-level items, capped at ~2000) and matched by DOI, PMID, PMCID, or title-year — so it catches matches even when one source is missing an identifier. No papers are written to the Zotero library; it is used read-only as a source of truth for "already have this". When no key is set, this step is skipped entirely.
+When the `ZOTERO_API_KEY` environment variable is set, `literature_search` automatically cross-checks PubMed candidates against the user's Zotero library after the PubMed search and flags papers already owned (`in_zotero: true`, with the matching `zotero_key`). The library is scanned once per non-empty `literature_search` call (top-level items, capped at ~2000) and matched by DOI, PMID, PMCID, or title-year — so it catches matches even when one source is missing an identifier. No papers are written to the Zotero library; it is used read-only as a source of truth for "already have this". When no key is set, this step is skipped entirely.
 
 The standalone `zotero_search` tool searches the Zotero library directly by keyword (title/creators/year, and indexed full text when `qmode=everything`) and is useful when you want to surface papers you already own on a topic without going through PubMed.
 
@@ -108,7 +112,7 @@ Read these references before constructing queries:
 
 #### Optional full-text escalation
 
-Only retrieve full text when the user explicitly requests it. By default, escalate the 5 most pivotal papers, with a hard cap of 10. Call `europe_pmc_fulltext` once per selected paper, passing exactly one `identifier` and preferring PMCID, then DOI, then PMID; use optional `sections` or `max_chars` only to focus or bound that paper's excerpts. This tool retrieves only Europe PMC open-access JATS and is not a search or batch tool.
+Only retrieve full text when the user explicitly requests it. By default, escalate the 5 most pivotal papers, with a hard cap of 10. Call `europe_pmc_fulltext` once per selected paper, passing exactly one `identifier` and preferring PMCID, then DOI, then PMID; use optional `sections` or `max_chars` only to focus or bound that paper's excerpts. This tool retrieves only Europe PMC open-access JATS and is not a search or batch tool. In codemode, submit at most two single-paper calls at a time using `Promise.allSettled`; save complete successful/unavailable results and failures before printing a small evidence projection. See `references/codemode-workflows.md` for examples and cancellation behavior.
 
 - On `status: full_text`, use the returned structured section excerpts. If `truncated` is true, describe the evidence as an **OA full-text excerpt**, not as the complete paper having been read.
 - On `status: unavailable` or tool error, use the full PubMed abstract as fallback and record the reason. Do not substitute generic web retrieval as the primary path.
@@ -227,6 +231,7 @@ Do not write these outputs directly to `./results/literature_review/` or to `./r
 - `references/pubmed_search_syntax.md`
 - `references/pubmed_common_queries.md`
 - `references/preclinical-extraction-guide.md`
+- `references/codemode-workflows.md`
 
 ## Companion scripts
 

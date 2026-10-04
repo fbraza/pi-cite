@@ -1,7 +1,9 @@
+import { createRequestGate, retryDelayMs } from "./request-gate.ts";
+import { evidenceResult } from "./evidence-output.ts";
 import { LITERATURE_TOOL_METADATA } from "./tool-metadata.ts";
 import { Type, type Static } from "typebox";
 import { renderProviderSearchResult } from "./rendering.ts";
-import { emitProgress, structuredResult, type TextToolUpdate } from "./tool-output.ts";
+import { emitProgress, type TextToolUpdate } from "./tool-output.ts";
 import { ZOTERO_SEARCH_OUTPUT, type ZoteroSearchOutput } from "./output-schemas.ts";
 import type { PaperRecord } from "./types.ts";
 import {
@@ -10,7 +12,6 @@ import {
 	formatPaperText,
 	normalizeDoi,
 	normalizePmcid,
-	sleep,
 } from "./shared.ts";
 
 export const ZOTERO_API_BASE = "https://api.zotero.org";
@@ -47,21 +48,14 @@ export const ZOTERO_SEARCH_PARAMS = Type.Object({
 
 export type ZoteroSearchParams = Static<typeof ZOTERO_SEARCH_PARAMS>;
 
-// Module-level backoff window shared across all Zotero requests in a process.
-let zoteroBackoffUntil = 0;
-
-async function respectBackoff(signal?: AbortSignal): Promise<void> {
-	const wait = zoteroBackoffUntil - Date.now();
-	if (wait > 0) await sleep(wait, signal);
-}
+// Search, access checks, and ownership scans share one lane and backoff deadline.
+const zoteroRequests = createRequestGate();
 
 function updateBackoffFromResponse(response: Response): void {
-	const header = response.headers.get("Backoff") ?? response.headers.get("Retry-After");
-	if (!header) return;
-	const seconds = Number(header);
-	if (Number.isFinite(seconds) && seconds > 0) {
-		zoteroBackoffUntil = Math.max(zoteroBackoffUntil, Date.now() + seconds * 1000);
-	}
+	zoteroRequests.defer(Math.max(
+		retryDelayMs(response.headers.get("Backoff")),
+		retryDelayMs(response.headers.get("Retry-After")),
+	));
 }
 
 export type ZoteroFetchOptions = {
@@ -76,29 +70,30 @@ export async function zoteroFetch<T>(
 	{ apiKey, method = "GET", body, parse = "json" }: ZoteroFetchOptions,
 	signal?: AbortSignal,
 ): Promise<{ data: T; response: Response }> {
-	await respectBackoff(signal);
-	const headers: Record<string, string> = {
-		"Zotero-API-Key": apiKey,
-		"Zotero-API-Version": ZOTERO_API_VERSION,
-		"user-agent": USER_AGENT,
-		accept: "application/json",
-	};
-	if (body !== undefined) headers["Content-Type"] = "application/json";
-	const response = await fetch(url, {
-		method,
-		headers,
-		body: body !== undefined ? JSON.stringify(body) : undefined,
-		signal,
-		redirect: "follow",
-	});
-	updateBackoffFromResponse(response);
-	if (!response.ok) {
-		const text = await response.text().catch(() => "");
-		const snippet = text ? `: ${text.slice(0, 200)}` : "";
-		throw new Error(`Zotero API ${response.status} ${response.statusText} for ${url}${snippet}`);
-	}
-	const data = (parse === "json" ? await response.json() : await response.text()) as T;
-	return { data, response };
+	return zoteroRequests.run(async () => {
+		const headers: Record<string, string> = {
+			"Zotero-API-Key": apiKey,
+			"Zotero-API-Version": ZOTERO_API_VERSION,
+			"user-agent": USER_AGENT,
+			accept: "application/json",
+		};
+		if (body !== undefined) headers["Content-Type"] = "application/json";
+		const response = await fetch(url, {
+			method,
+			headers,
+			body: body !== undefined ? JSON.stringify(body) : undefined,
+			signal,
+			redirect: "follow",
+		});
+		updateBackoffFromResponse(response);
+		if (!response.ok) {
+			const text = await response.text().catch(() => "");
+			const snippet = text ? `: ${text.slice(0, 200)}` : "";
+			throw new Error(`Zotero API ${response.status} ${response.statusText} for ${url}${snippet}`);
+		}
+		const data = (parse === "json" ? await response.json() : await response.text()) as T;
+		return { data, response };
+	}, { signal });
 }
 
 export function getZoteroApiKey(envVarName?: string): string | undefined {
@@ -442,7 +437,7 @@ export function createZoteroSearchTool() {
 		) {
 			const result = await searchZotero(params, signal, onUpdate);
 			const data: ZoteroSearchOutput = { ...result, query: params.query };
-			return structuredResult(ZOTERO_SEARCH_OUTPUT, formatPaperText(result.papers), data, result);
+			return evidenceResult(ZOTERO_SEARCH_OUTPUT, formatPaperText(result.papers), data, result, { signal });
 		},
 		renderResult(
 			result: Parameters<typeof renderProviderSearchResult>[1],

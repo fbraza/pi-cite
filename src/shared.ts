@@ -1,4 +1,7 @@
 import type { PaperRecord } from "./types.ts";
+import { createRequestGate, retryDelayMs } from "./request-gate.ts";
+
+const ncbiRequests = createRequestGate();
 
 export const USER_AGENT = "research-skills-literature-tools/0.1 (+https://github.com/fbraza/research-skills)";
 
@@ -84,17 +87,27 @@ export function pickOne(regex: RegExp, text: string): string | undefined {
 }
 
 export async function fetchText(url: string, signal?: AbortSignal, headers?: Record<string, string>): Promise<string> {
-	const response = await fetch(url, {
-		headers: {
-			"user-agent": USER_AGENT,
-			accept: "application/json, text/xml, application/xml, text/html;q=0.9, */*;q=0.8",
-			...headers,
-		},
-		signal,
-		redirect: "follow",
-	});
-	if (!response.ok) throw new Error(`${response.status} ${response.statusText} for ${url}`);
-	return await response.text();
+	const parsed = new URL(url);
+	const ncbi = parsed.hostname === "eutils.ncbi.nlm.nih.gov";
+	const request = async () => {
+		const response = await fetch(url, {
+			headers: {
+				"user-agent": USER_AGENT,
+				accept: "application/json, text/xml, application/xml, text/html;q=0.9, */*;q=0.8",
+				...headers,
+			},
+			signal,
+			redirect: "follow",
+		});
+		if (ncbi) ncbiRequests.defer(retryDelayMs(response.headers.get("Retry-After")));
+		if (!response.ok) {
+			await response.body?.cancel().catch(() => {});
+			throw new Error(`${response.status} ${response.statusText} for ${url}`);
+		}
+		return await response.text();
+	};
+	// Shared pacing covers ESearch, EFetch, identifier lookups, and concurrent tool calls.
+	return ncbi ? ncbiRequests.run(request, { signal, interval: parsed.searchParams.has("api_key") ? 120 : 350 }) : request();
 }
 
 export async function fetchJson<T>(url: string, signal?: AbortSignal, headers?: Record<string, string>): Promise<T> {
