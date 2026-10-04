@@ -37,7 +37,7 @@ The extension provides `literature_search`, `pubmed_search`, `zotero_search`, an
 
 ## Codemode (optional)
 
-Tools work directly by default. When Pi's codemode is active, default literature tools are available to scripts under the `literature` namespace.
+Tools work directly by default. When Pi's codemode is active, default literature tools are available to scripts under the `literature` namespace. Registered-but-inactive codemode does not change this behavior. Explicit tool selections are preserved; the extension never enables codemode for you.
 
 To enable codemode without restricting the tool registry, use Pi settings:
 
@@ -47,7 +47,15 @@ To enable codemode without restricting the tool registry, use Pi settings:
 }
 ```
 
-Search calls return structured objects; access `result.papers` directly.
+Codemode search calls return structured objects; access `result.papers` directly. Full-text calls return `status: "full_text"` with sections or `status: "unavailable"` with a fallback recommendation (not an automatically fetched abstract).
+
+```js
+const result = await tools.literature_search({
+  pubmed_query: 'NLRP3[tiab] AND "Alzheimer Disease"[mh]',
+  max_results: 10,
+});
+text(result.papers.map(paper => ({ title: paper.title, pmid: paper.pmid })));
+```
 
 Large direct results provide evidence previews and a path to complete JSON. Follow that path with `read` or `bash` before relying on omitted evidence; copy the file into your review folder if you need to keep it.
 

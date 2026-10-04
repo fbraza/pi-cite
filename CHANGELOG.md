@@ -1,6 +1,8 @@
 # Changelog
 
-## Unreleased
+## Unreleased — 2.0.0
+
+Prepared as a major release because codemode results change from text/JSON strings to structured objects, Pi v1/Node.js requirements change, and undocumented registration wrappers are removed. Large direct-output presentation also changes. Tool names and provider evidence contracts are retained. This version has not been published.
 
 ### Changed
 
@@ -16,6 +18,8 @@
 - Include nonfatal provider warnings in model content, not only structured/UI details. Renderers show model-preview truncation separately from excerpt/UI truncation and expose the complete artifact path in expanded views.
 - Serialize HTTP/body consumption per provider within the loaded runtime. Apply shared 350 ms/120 ms NCBI pacing (without/with an API key), longest Zotero Backoff/Retry-After, and NCBI/Europe PMC Retry-After. No automatic retries or cross-process quota enforcement are added.
 - Add structured codemode skill examples for two-call batches, partial-success retention, multi-identifier deduplication, ownership preservation, saving complete results through write, evidence projection, and opt-in full-text retrieval. Codemode storage remains for small state only.
+- Expand deterministic real Pi coverage for nested progress, operational/permission failures, result-hook replacements, cancellation, and all four SDK-bound runtime modes with codemode on/only. No live model/provider access is used.
+- Add POSIX pseudo-terminal smoke tests using real Pi TUI/ProcessTerminal for regular/fullscreen rendering, keyboard expansion, artifact paths, resize, theme changes, failures, and terminal restoration. Validate an actual npm tarball through Pi's package/skill loader without bundling host dependencies.
 
 ### Fixed
 

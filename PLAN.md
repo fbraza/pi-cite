@@ -207,7 +207,7 @@ Scope:
 
 ## Phase 5 — Bounded evidence and codemode workflow
 
-Status: complete — approved for commit and push; Phase 6 remains pending
+Status: complete — committed and pushed as a1053d4
 
 Implemented:
 - Add `src/evidence-output.ts` and use it for all four final tool results. Validate complete structured data before any artifact write; retain the existing output schemas, complete structured objects, and UI evidence.
@@ -237,7 +237,7 @@ Intentional changes and remaining risks:
 - Scheduling is per loaded module instance, not cross-process or durable across reloads. It bounds provider HTTP concurrency, not total queued call count. Large scans/long backoff can outlast a codemode deadline; examples limit submission to two calls at a time. No ownership cache or new request timeout policy was added.
 - The byte limit applies to successful final data content, not emitted progress or Pi-generated thrown-error text. Complete structured evidence and session/UI details are not size-capped.
 - Tests exercised Node.js 24 locally; the declared minimum Node version and live provider quotas were not separately tested. No manual live-terminal/browser review was performed.
-- Phase 5 was approved for commit and push. No version bump, publication, or Phase 6 work was performed.
+- Phase 5 was committed and pushed as a1053d4. No version bump, publication, or Phase 6 work was performed in that checkpoint.
 
 Work:
 - Define an explicit model-facing output budget, including multibyte text.
@@ -256,7 +256,33 @@ Acceptance:
 
 ## Phase 6 — End-to-end validation and release documentation
 
-Status: pending
+Status: complete — approved for commit and push; 2.0.0 remains unpublished
+
+Implemented:
+- Expand `tests/codemode.test.ts` into eight real Pi/QuickJS scenarios: all SDK-bound runtime modes (`tui`, `rpc`, `json`, `print`) with codemode `on` and `only`. Verify all four tools' complete typed results, ownership and excerpts, expected unavailable fallback, namespace/schema discovery, nested IDs/parent IDs, provider progress and parent status publication, rejected operational/permission calls, result-hook replacement, and no nested transcript entries. Provider HTTP is mocked; requests made before fixture setup are denied.
+- Add `tests/codemode-cancellation.test.ts`. Abort after the actual nested HTTP operation starts (not after a guessed VM startup delay); verify signal propagation, failed/cancelled status, retained partial script output, and successful subsequent work on the shared provider lane without retries.
+- Add `tests/tui-smoke.test.ts` and `tests/fixtures/tui-smoke.ts`. Drive genuine Pi `ProcessTerminal`, `ToolExecutionComponent`, and main/alternate-screen TUIs through a POSIX pseudo-terminal with keyboard input and SIGWINCH. Exercise partial/success/failure, a real complete JSON artifact, expansion, Unicode, dark/light invalidation at the same width, 120-to-32-column resizing, raw-mode restoration, and alternate-screen restoration. Scratch files/logs are isolated under the test directory and removed.
+- Add `tests/package-release.test.ts`. Build an actual offline npm tarball with lifecycle scripts disabled, verify package/lock versions and exclusions, unpack safely, and load the archive's manifest-selected extension and bundled skill through Pi without bundled host dependencies. Exercise a real structured direct call with mocked HTTP. Remove the archive and unpacked resources after the test. Support npm 10/12's differing JSON result layouts.
+- Reuse earlier direct/headless, large-output/artifact, exposure/reload/resume, rendering/HTML, skill-example, and Python export/extraction coverage; do not duplicate their infrastructure or add production abstractions.
+- Update README with concise automatic-routing/selection guidance, a structured codemode example, and full-text return/fallback semantics. Keep migration/implementation history in CHANGELOG.md.
+- Prepare `2.0.0` in package.json and package-lock.json, without creating a tag or publishing. A major release is appropriate for string-to-object codemode returns, Pi v1/Node runtime requirements, removed undocumented wrappers, and large direct-text presentation changes. Mark the changelog explicitly unreleased.
+- Production source, provider evidence contracts, dependencies, tool names, default exposure behavior, and settings are unchanged in Phase 6.
+
+Validation:
+- `npm test`: all 122 tests passed on Node.js 24.15.0/npm 12.2.0 and Node.js 22.22.2/npm 10.9.7 (111 previous, plus seven matrix scenarios, one cancellation test, one archive test, and two terminal smoke tests).
+- `npm run typecheck`: passed on both Node versions.
+- `npm run pack:check`: passed; 29 packaged files, excluding tests/fixtures, development files, and host node_modules. The actual-archive test also passed with both npm layouts.
+- Installed local Pi CLI reports `1.0.1`; tests use that pinned Pi/TUI baseline.
+- `git diff --check`: passed.
+- Test fixture issues (theme initialization before constructing the interactive component, waiting for the actual resize event rather than racing SIGWINCH, and npm 12's keyed pack JSON) were corrected; no production changes were needed.
+
+Final diff review and known limitations:
+- Only tests, README/CHANGELOG/PLAN, and the synchronized release version changed in this phase. No new runtime dependencies, model calls, provider rewrites, compatibility layer for old Pi, formatter/framework migration, or automatic publication.
+- Mode tests use SDK-bound modes with synthetic authoritative assistant history; they do not exercise the entire CLI/editor or RPC transport. Terminal smoke tests use real PTYs/TUI components and fixture keys, not a manual live model session or human visual inspection. Existing HTML tests assert generated renderer output; no manual browser review was performed.
+- PTY tests are skipped on Windows; Windows terminal behavior was not tested locally. Tests require python3 and npm for scripts/archive/smoke checks. Exact Node.js 22.19.0 was not exercised; Node 22.22.2 and 24.15.0 both passed.
+- Live provider quotas, changing scientific content, and model authentication/network timeouts are not covered by mocked tests. The previously reported OAuth refresh timeout remains a separate, unresolved environment diagnostic.
+- Phase 5 retention/privacy/scheduling limits still apply: successful private temp artifacts can accumulate or disappear after OS cleanup, and provider lanes are local to loaded modules rather than cross-process. Complete structured evidence remains uncapped; large scans/server backoff can outlast script deadlines.
+- Phase 6 was approved for commit and push. No tag, publication, or further phase work was performed. Release tagging/publication require separate approval.
 
 Work:
 - Add deterministic, mocked Pi integration coverage for direct and codemode execution.
