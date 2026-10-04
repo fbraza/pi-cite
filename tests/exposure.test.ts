@@ -173,6 +173,25 @@ test("settings modifiers disable callable tools, pin enabled tools, and honor Pi
   assert.ok(h.active.includes("pubmed_search"));
 });
 
+test("removing settings overrides preserves recorded choices until explicitly changed", async () => {
+  const h = harness({ active: ["read", "codemode"], defaultTools: ["+pubmed_search"] });
+  await h.fire("session_start");
+  h.settings.defaultTools = [];
+  await h.fire("before_agent_start");
+  assert.ok(h.active.includes("pubmed_search"), "Removing a positive override must not reset its recorded preference");
+  h.settings.defaultTools = ["-pubmed_search"];
+  await h.fire("before_agent_start");
+  assert.ok(!h.active.includes("pubmed_search"));
+  h.settings.defaultTools = [];
+  await h.fire("before_agent_start");
+  assert.ok(!h.active.includes("pubmed_search"), "Removing a negative override must not restore automatic callability");
+  assert.equal(h.tools.get("pubmed_search")!.exposure, "direct");
+  h.active = [...h.active, "pubmed_search"];
+  await h.fire("before_agent_start");
+  assert.ok(h.active.includes("pubmed_search"), "An explicit later activation can re-enable the tool");
+  assert.equal(h.tools.get("pubmed_search")!.exposure, "direct");
+});
+
 test("CLI/SDK activation overrides a negative default and absent registry tools stay absent", async () => {
   const h = harness({ active: ["codemode", "pubmed_search"], defaultTools: ["-pubmed_search"], unavailable: ["zotero_search"] });
   await h.fire("session_start");

@@ -1,9 +1,12 @@
-import type { Theme, ThemeColor, ToolRenderResultOptions } from "@earendil-works/pi-coding-agent";
-import { Text } from "@earendil-works/pi-tui";
+import type { Theme, ThemeColor, ToolRenderers, ToolRenderResultOptions } from "@earendil-works/pi-coding-agent";
+import { stripTerminalSequences, truncateToWidth, visibleWidth, wrapTextWithAnsi, type Component } from "@earendil-works/pi-tui";
 import type { PaperRecord } from "./types.ts";
+import type { EuropePmcResult, EuropePmcUnavailableReason } from "./output-schemas.ts";
 
 export const MAX_STREAMED_PAPERS_PER_QUERY = 5;
 export const MAX_EXPANDED_PAPER_PREVIEW = 5;
+export const MAX_EXPANDED_FULLTEXT_SECTIONS = 5;
+export const MAX_FULLTEXT_PREVIEW_COLUMNS = 320;
 
 type ThemeLike = Partial<Pick<Theme, "fg" | "bold">>;
 
@@ -59,8 +62,56 @@ export type LiteratureSearchDisplaySearch = {
   papers: CompactPaperForDisplay[];
 };
 
-function terminalText(text: string): Text {
-  return new Text(text, 0, 0);
+// Derive the relevant context fields from Pi's exported renderer contract.
+// ToolRenderContext itself is not exported by Pi v1.0.1's package root.
+type RenderContext = Partial<Pick<Parameters<NonNullable<ToolRenderers["renderResult"]>>[3], "isError" | "lastComponent" | "args">>;
+
+function argument(context: RenderContext | undefined, name: "query" | "pubmed_query" | "identifier"): string | undefined {
+  const args: unknown = context?.args;
+  if (!args || typeof args !== "object") return undefined;
+  const value = (args as Record<string, unknown>)[name];
+  return typeof value === "string" ? value : undefined;
+}
+
+class ResultComponent implements Component {
+  private layout: (width: number) => string;
+  private cache?: { width: number; lines: string[] };
+
+  constructor(layout: (width: number) => string) {
+    this.layout = layout;
+  }
+
+  setLayout(layout: (width: number) => string): void {
+    this.layout = layout;
+    this.invalidate();
+  }
+
+  invalidate(): void {
+    this.cache = undefined;
+  }
+
+  render(width: number): string[] {
+    const columns = Math.max(0, Math.floor(width));
+    if (!Number.isFinite(columns) || columns === 0) return [];
+    if (this.cache?.width === columns) return this.cache.lines;
+    // Clamp even an unwrappable wide grapheme at a one-column terminal width.
+    const lines = wrapTextWithAnsi(this.layout(columns), columns)
+      .map(line => truncateToWidth(line, columns, "…"));
+    this.cache = { width: columns, lines };
+    return lines;
+  }
+}
+
+function resultComponent(layout: (width: number) => string, context?: RenderContext): Component {
+  if (context?.lastComponent instanceof ResultComponent) {
+    context.lastComponent.setLayout(layout);
+    return context.lastComponent;
+  }
+  return new ResultComponent(layout);
+}
+
+function displayText(value: unknown): string {
+  return stripTerminalSequences(String(value ?? "")).replace(/\s+/g, " ").trim();
 }
 
 function color(theme: ThemeLike | undefined, colorName: ThemeColor, text: string): string {
@@ -79,15 +130,14 @@ function bold(theme: ThemeLike | undefined, text: string): string {
   }
 }
 
-export function truncateText(value: unknown, maxLength: number): string {
-  const text = String(value ?? "").replace(/\s+/g, " ").trim();
-  if (text.length <= maxLength) return text;
-  return `${text.slice(0, Math.max(0, maxLength - 1)).trimEnd()}…`;
+export function truncateText(value: unknown, width: number): string {
+  return stripTerminalSequences(truncateToWidth(displayText(value), Math.max(0, Math.floor(width)), "…"));
 }
 
 export function padText(value: unknown, width: number): string {
-  const text = truncateText(value, width);
-  return text + " ".repeat(Math.max(0, width - text.length));
+  const columns = Math.max(0, Math.floor(width));
+  const text = truncateText(value, columns);
+  return text + " ".repeat(Math.max(0, columns - visibleWidth(text)));
 }
 
 function authorSurname(author: string): string {
@@ -113,6 +163,8 @@ export function authorRange(paper: PaperRecord): string {
 export function paperIdentifier(paper: PaperRecord): string {
   if (paper.doi) return `DOI:${paper.doi}`;
   if (paper.pmid) return `PMID:${paper.pmid}`;
+  if (paper.pmcid) return `PMCID:${paper.pmcid}`;
+  if (paper.zotero_key) return `Zotero:${paper.zotero_key}`;
   return "—";
 }
 
@@ -160,11 +212,17 @@ function pluralize(count: number, singular: string, plural = `${singular}s`): st
 export function formatFoundLine(
   paper: CompactPaperForDisplay,
   theme?: ThemeLike,
+  width = 120,
 ): string {
+  const prefix = `  ${color(theme, "success", "✓ found:")} `;
+  if (width < 80) {
+    // Stack citation identifiers instead of squeezing them out of a narrow table.
+    return `${prefix}${truncateText(paper.first_author, 32)} — ${truncateText(paper.title, 62)}\n    ${color(theme, "muted", displayText(paper.id))}`;
+  }
   const author = padText(paper.first_author, 10);
-  const title = padText(paper.title, 62);
+  const title = padText(paper.title, Math.min(62, width - visibleWidth(prefix) - 10 - 28 - 4));
   const id = padText(paper.id, 28);
-  return `  ${color(theme, "success", "✓ found:")} ${author}  ${title}  ${color(theme, "muted", id)}`;
+  return `${prefix}${author}  ${title}  ${color(theme, "muted", id)}`;
 }
 
 export function formatPaperPreviewLine(
@@ -174,7 +232,7 @@ export function formatPaperPreviewLine(
 ): string {
   const year = paper.year ? ` ${paper.year}` : "";
   const title = truncateText(paper.title, 88);
-  return `  ${color(theme, "success", `${index + 1}.`)} ${paper.first_author}${year} — ${title}`;
+  return `  ${color(theme, "success", `${index + 1}.`)} ${truncateText(paper.first_author, 32)}${year} — ${title}`;
 }
 
 type RenderOptions = Partial<ToolRenderResultOptions>;
@@ -184,12 +242,14 @@ type TextContentResult = { type: string; text?: string };
 type ToolRenderResult<TDetails> = {
   content?: TextContentResult[];
   details?: TDetails;
+  isError?: boolean;
 };
 
 type ProviderSearchSummary = {
   searched?: boolean;
   count?: number;
   query?: string;
+  reason?: string;
 };
 
 type LiteratureResultDetails = {
@@ -203,20 +263,73 @@ type LiteratureResultDetails = {
 };
 
 type ProviderResultDetails = {
+  count?: number;
+  total?: number;
   papers?: PaperRecord[];
   query?: string;
   params?: { query?: string };
 };
 
-function renderCollapsedLiteratureResult(details: LiteratureResultDetails, theme?: ThemeLike): string {
-  const count = details.count ?? details.papers?.length ?? details.providers?.pubmed?.count;
+function contentText(result: ToolRenderResult<unknown>): string {
+  return (result.content ?? []).filter(block => block.type === "text").map(block => block.text ?? "").join("\n");
+}
+
+function queryLine(query: string | undefined, theme?: ThemeLike): string[] {
+  return query ? [`${color(theme, "muted", "query:")} ${truncateText(query, 96)}`] : [];
+}
+
+function failed(result: ToolRenderResult<unknown>, context?: RenderContext): boolean {
+  // Interactive Pi passes isError only in context; HTML also includes it in result.
+  return Boolean(context?.isError || result.isError);
+}
+
+function renderFailure(
+  toolName: string,
+  result: ToolRenderResult<unknown>,
+  options: RenderOptions,
+  theme?: ThemeLike,
+  query?: string,
+  identifier?: string,
+): string {
+  const prefix = `${color(theme, "error", "!")} ${color(theme, "toolTitle", toolName)} failed`;
+  const message = truncateText(contentText(result) || "Tool execution failed", options.expanded ? 1200 : 160);
+  if (!options.expanded) return `${prefix}: ${color(theme, "error", message)}`;
+  return [
+    prefix,
+    ...queryLine(query, theme),
+    ...(identifier ? [`identifier: ${displayText(identifier)}`] : []),
+    color(theme, "error", message),
+  ].join("\n");
+}
+
+function missingDetails(toolName: string, result: ToolRenderResult<unknown>, options: RenderOptions, theme?: ThemeLike, query?: string): string {
+  const lines = [`${color(theme, "muted", "—")} ${color(theme, "toolTitle", toolName)} result details unavailable`];
+  if (options.expanded) {
+    lines.push(...queryLine(query, theme));
+    const text = contentText(result);
+    if (text) lines.push(truncateText(text, 800));
+  }
+  return lines.join("\n");
+}
+
+function literatureCount(details: LiteratureResultDetails): number | undefined {
+  return details.count ?? details.papers?.length ?? details.providers?.pubmed?.count;
+}
+
+function ownershipWarning(details: LiteratureResultDetails): string | undefined {
+  const zotero = details.providers?.zotero;
+  if (zotero?.searched === false && zotero.reason && (literatureCount(details) ?? 0) > 0) return zotero.reason;
+  return undefined;
+}
+
+function renderCollapsedLiteratureResult(details: LiteratureResultDetails, count: number, theme?: ThemeLike): string {
   const prefix = `${color(theme, "success", "✓")} ${color(theme, "toolTitle", "literature_search")}`;
-  if (count === undefined) return `${prefix} PubMed papers`;
-  if (count === 0) return `${prefix} no PubMed papers found`;
+  const summary = count === 0 ? "no PubMed papers found" : `${count} PubMed ${pluralize(count, "paper")}`;
   const zoteroRan = Boolean(details.providers?.zotero?.searched);
-  const zoteroMatched = (details.papers ?? []).filter((paper) => paper.in_zotero).length;
+  const zoteroMatched = (details.papers ?? []).filter(paper => paper.in_zotero).length;
   const note = zoteroRan && zoteroMatched > 0 ? ` · ${zoteroMatched} already in Zotero` : "";
-  return `${prefix} ${count} PubMed ${pluralize(count, "paper")}${note}`;
+  const warning = ownershipWarning(details) ? color(theme, "warning", " · Zotero ownership check unavailable") : "";
+  return `${prefix} ${summary}${note}${warning}`;
 }
 
 function renderLiteratureStreamingStatus(details: LiteratureResultDetails, theme?: ThemeLike): string {
@@ -242,34 +355,33 @@ function renderLiteratureStreamingStatus(details: LiteratureResultDetails, theme
   return `${prefix} found ${count} PubMed ${pluralize(count, "paper")}`;
 }
 
-function renderExpandedLiteratureResult(details: LiteratureResultDetails, theme?: ThemeLike): string {
-  const papers = compactPapersForDisplay(details.papers ?? []);
-  const lines = [renderCollapsedLiteratureResult(details, theme)];
-  const query = details.providers?.pubmed?.query;
-  if (query) lines.push(`${color(theme, "muted", "query:")} ${truncateText(query, 96)}`);
-  lines.push(
-    ...papers
-      .slice(0, MAX_EXPANDED_PAPER_PREVIEW)
-      .map((paper, index) => formatPaperPreviewLine(paper, index, theme)),
-  );
-  const hidden = papers.length - Math.min(papers.length, MAX_EXPANDED_PAPER_PREVIEW);
-  if (hidden > 0) lines.push(`  ${color(theme, "dim", "…")} ${hidden} more ${pluralize(hidden, "paper")} in tool result`);
-  return lines.join("\n");
-}
-
 export function renderLiteratureSearchResult(
   result: ToolRenderResult<LiteratureResultDetails>,
   options: RenderOptions,
   theme?: ThemeLike,
-): Text {
-  const details = result.details ?? {};
-  if (options.isPartial) {
-    return terminalText(renderLiteratureStreamingStatus(details, theme));
-  }
-  if (!options.expanded) {
-    return terminalText(renderCollapsedLiteratureResult(details, theme));
-  }
-  return terminalText(renderExpandedLiteratureResult(details, theme));
+  context?: RenderContext,
+): Component {
+  return resultComponent(() => {
+    const details = result.details ?? {};
+    const query = details.providers?.pubmed?.query ?? argument(context, "pubmed_query");
+    if (failed(result, context)) return renderFailure("literature_search", result, options, theme, query);
+    if (options.isPartial) {
+      return [renderLiteratureStreamingStatus(details, theme), ...(options.expanded ? queryLine(query, theme) : [])].join("\n");
+    }
+    const count = literatureCount(details);
+    if (count === undefined) return missingDetails("literature_search", result, options, theme, query);
+    const lines = [renderCollapsedLiteratureResult(details, count, theme)];
+    if (options.expanded) {
+      lines.push(...queryLine(query, theme));
+      const papers = details.papers ?? [];
+      lines.push(...papers.slice(0, MAX_EXPANDED_PAPER_PREVIEW).map((paper, index) => formatPaperPreviewLine(compactPaperForDisplay(paper), index, theme)));
+      const hidden = papers.length - Math.min(papers.length, MAX_EXPANDED_PAPER_PREVIEW);
+      if (hidden > 0) lines.push(`  ${color(theme, "dim", "…")} ${hidden} more ${pluralize(hidden, "paper")} in tool result`);
+      const warning = ownershipWarning(details);
+      if (warning) lines.push(color(theme, "warning", `Zotero ownership check: ${truncateText(warning, 240)}`));
+    }
+    return lines.join("\n");
+  }, context);
 }
 
 export function renderProviderSearchResult(
@@ -277,26 +389,109 @@ export function renderProviderSearchResult(
   result: ToolRenderResult<ProviderResultDetails>,
   options: RenderOptions,
   theme?: ThemeLike,
-): Text {
-  const providerName = providerLabel(provider);
-  const toolName = provider === "zotero" ? "zotero_search" : "pubmed_search";
-  const providerColorName = providerColor(provider);
-  const details = result.details ?? {};
-  const papers = compactPapersForDisplay(details.papers ?? []);
-  const query = details.query ?? details.params?.query ?? "";
-  if (options.isPartial) {
-    const text = result.content?.[0]?.type === "text" ? result.content[0].text ?? "" : `Searching ${providerName}...`;
-    return terminalText(color(theme, "warning", text));
+  context?: RenderContext,
+): Component {
+  return resultComponent(width => {
+    const providerName = providerLabel(provider);
+    const toolName = provider === "zotero" ? "zotero_search" : "pubmed_search";
+    const providerColorName = providerColor(provider);
+    const details = result.details ?? {};
+    const query = details.query ?? details.params?.query ?? argument(context, "query");
+    if (failed(result, context)) return renderFailure(toolName, result, options, theme, query);
+    if (options.isPartial) {
+      const text = truncateText(contentText(result) || `Searching ${providerName}…`, 240);
+      return [`${color(theme, "accent", "●")} ${color(theme, "toolTitle", toolName)} ${color(theme, "warning", text)}`,
+        ...(options.expanded ? queryLine(query, theme) : [])].join("\n");
+    }
+    const count = details.count ?? details.papers?.length;
+    if (count === undefined) return missingDetails(toolName, result, options, theme, query);
+    if (!options.expanded) {
+      return `${color(theme, "success", "✓")} ${color(theme, "toolTitle", toolName)} ${count} ${pluralize(count, "paper")}`;
+    }
+    const papers = details.papers ?? [];
+    const lines = [
+      `${color(theme, providerColorName, "→")} ${color(theme, providerColorName, providerName)} q1: ${truncateText(query, 96)}`,
+      ...papers.slice(0, MAX_STREAMED_PAPERS_PER_QUERY).map(paper => formatFoundLine(compactPaperForDisplay(paper), theme, width)),
+    ];
+    const hidden = papers.length - Math.min(papers.length, MAX_STREAMED_PAPERS_PER_QUERY);
+    if (hidden > 0) lines.push(`  ${color(theme, "dim", "…")} ${hidden} more candidate papers`);
+    lines.push(`${color(theme, "success", "✓")} done: ${count} ${pluralize(count, "paper")}`);
+    return lines.join("\n");
+  }, context);
+}
+
+const UNAVAILABLE_LABELS: Record<EuropePmcUnavailableReason, string> = {
+  not_found: "No exactly matching paper was found",
+  ambiguous_match: "More than one matching record; an exact paper is required",
+  not_open_access: "The matching paper is not open access",
+  no_pmcid: "The matching paper has no usable PMCID",
+  xml_not_available: "Open-access full-text XML is not available",
+  source_too_large: "Full-text XML exceeds the retrieval size limit",
+};
+
+type EuropePmcDisplayDetails = Partial<EuropePmcResult>;
+
+function europePmcMetadataLines(details: EuropePmcDisplayDetails, theme?: ThemeLike): string[] {
+  const metadata = details.metadata;
+  const lines: string[] = [];
+  if (metadata?.title) lines.push(bold(theme, truncateText(metadata.title, 160)));
+  if (metadata?.author_string) lines.push(truncateText(metadata.author_string, 160));
+  if (metadata?.journal || metadata?.year) lines.push(displayText([metadata.journal, metadata.year].filter(Boolean).join(" · ")));
+  const ids = [metadata?.doi ? `DOI:${metadata.doi}` : "", metadata?.pmid ? `PMID:${metadata.pmid}` : "", metadata?.pmcid ? `PMCID:${metadata.pmcid}` : ""].filter(Boolean);
+  if (ids.length) lines.push(displayText(ids.join(" · ")));
+  const provenance = details.provenance;
+  if (provenance) {
+    lines.push(`provenance: ${displayText(provenance.provider)} · API ${displayText(provenance.api_version)}${metadata ? ` · open access: ${metadata.is_open_access ? "yes" : "no"}` : ""}`);
+    if (metadata?.license) lines.push(`license: ${displayText(metadata.license)}`);
+    if (provenance.full_text_url) lines.push(`source: ${displayText(provenance.full_text_url)}`);
+    lines.push(`search: ${displayText(provenance.search_url)}`);
   }
-  if (!options.expanded) {
-    return terminalText(`${color(theme, "success", "✓")} ${color(theme, "toolTitle", toolName)} ${papers.length} papers`);
-  }
-  const lines = [
-    `${color(theme, providerColorName, "→")} ${color(theme, providerColorName, providerName)} q1: ${query}`,
-    ...papers.slice(0, MAX_STREAMED_PAPERS_PER_QUERY).map((paper) => formatFoundLine(paper, theme)),
-  ];
-  const hidden = papers.length - Math.min(papers.length, MAX_STREAMED_PAPERS_PER_QUERY);
-  if (hidden > 0) lines.push(`  ${color(theme, "dim", "…")} ${hidden} more candidate papers`);
-  lines.push(`${color(theme, providerColorName, "✓")} done: ${papers.length} papers`);
-  return terminalText(lines.join("\n"));
+  return lines;
+}
+
+export function renderEuropePmcFulltextResult(
+  result: ToolRenderResult<EuropePmcDisplayDetails>,
+  options: RenderOptions,
+  theme?: ThemeLike,
+  context?: RenderContext,
+): Component {
+  return resultComponent(() => {
+    const details = result.details ?? {};
+    const identifier = details.identifier?.normalized ?? argument(context, "identifier");
+    const name = color(theme, "toolTitle", "europe_pmc_fulltext");
+    if (failed(result, context)) return renderFailure("europe_pmc_fulltext", result, options, theme, undefined, identifier);
+    if (options.isPartial) {
+      return `${color(theme, "accent", "●")} ${name} ${truncateText(contentText(result) || "retrieving open-access excerpts…", 240)}`;
+    }
+    if (details.status === "unavailable") {
+      const lines = [`${color(theme, "warning", "—")} ${name} unavailable: ${displayText(details.reason ?? "unknown")}${identifier ? ` · ${displayText(identifier)}` : ""}`];
+      if (options.expanded) {
+        if (details.reason) lines.push(UNAVAILABLE_LABELS[details.reason]);
+        lines.push(...europePmcMetadataLines(details, theme));
+        if (details.recommended_fallback === "pubmed_abstract") lines.push("fallback: PubMed abstract (not fetched)");
+      }
+      return lines.join("\n");
+    }
+    if (details.status !== "full_text") return missingDetails("europe_pmc_fulltext", result, options, theme);
+    const sections = details.sections ?? [];
+    const summary = sections.length ? `${sections.length} ${pluralize(sections.length, "section")} of open-access excerpts` : "no matching scientific prose";
+    const lines = [`${color(theme, "success", "✓")} ${name} ${summary}${details.returned_chars !== undefined ? ` · ${details.returned_chars} chars` : ""}${identifier ? ` · ${displayText(identifier)}` : ""}${details.truncated ? color(theme, "warning", " · truncated") : ""}`];
+    if (options.expanded) {
+      lines.push(...europePmcMetadataLines(details, theme));
+      if (details.requested_sections?.length) lines.push(`requested sections: ${details.requested_sections.join(", ")}`);
+      if (details.missing_sections?.length) lines.push(color(theme, "warning", `missing sections: ${details.missing_sections.join(", ")}`));
+      if (details.section_fallback) lines.push(color(theme, "warning", "section fallback: using unclassified body prose"));
+      if (details.truncated) lines.push(color(theme, "warning", "Returned excerpts are truncated; this is not the complete article."));
+      for (const section of sections.slice(0, MAX_EXPANDED_FULLTEXT_SECTIONS)) {
+        lines.push(`  ${bold(theme, truncateText(section.heading || section.section, 96))} [${section.section}]${section.truncated ? color(theme, "warning", " (excerpt truncated)") : ""}`);
+        lines.push(`  ${truncateText(section.text, MAX_FULLTEXT_PREVIEW_COLUMNS)}`);
+      }
+      const hidden = Math.max(0, sections.length - MAX_EXPANDED_FULLTEXT_SECTIONS);
+      if (hidden) lines.push(`  … ${hidden} more ${pluralize(hidden, "section")} in tool result`);
+      if (hidden || sections.some(section => visibleWidth(displayText(section.text)) > MAX_FULLTEXT_PREVIEW_COLUMNS)) {
+        lines.push(color(theme, "dim", "UI preview only; complete returned excerpts are in the tool result."));
+      }
+    }
+    return lines.join("\n");
+  }, context);
 }

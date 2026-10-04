@@ -8,14 +8,20 @@ export function unique<T>(items: T[]): NonNullable<T>[] {
 
 export function sleep(ms: number, signal?: AbortSignal): Promise<void> {
 	return new Promise((resolve, reject) => {
-		const timeout = setTimeout(resolve, ms);
-		if (!signal) return;
+		if (signal?.aborted) {
+			reject(new Error("Request aborted"));
+			return;
+		}
+		const timeout = setTimeout(() => {
+			signal?.removeEventListener("abort", onAbort);
+			resolve();
+		}, ms);
 		const onAbort = () => {
 			clearTimeout(timeout);
+			signal?.removeEventListener("abort", onAbort);
 			reject(new Error("Request aborted"));
 		};
-		if (signal.aborted) onAbort();
-		signal.addEventListener("abort", onAbort, { once: true });
+		signal?.addEventListener("abort", onAbort, { once: true });
 	});
 }
 

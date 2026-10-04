@@ -1,4 +1,3 @@
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { LITERATURE_TOOL_METADATA } from "./tool-metadata.ts";
 import { Type, type Static } from "typebox";
 import { searchPubmed } from "./pubmed.ts";
@@ -270,12 +269,9 @@ export function createLiteratureSearchTool() {
       result: Parameters<typeof renderLiteratureSearchResult>[0],
       options: Parameters<typeof renderLiteratureSearchResult>[1],
       theme: Parameters<typeof renderLiteratureSearchResult>[2],
+      context?: Parameters<typeof renderLiteratureSearchResult>[3],
     ) {
-      return renderLiteratureSearchResult(result, options, theme);
+      return renderLiteratureSearchResult(result, options, theme, context);
     },
   };
-}
-
-export function registerLiteratureSearchTool(pi: ExtensionAPI): void {
-  pi.registerTool(createLiteratureSearchTool());
 }

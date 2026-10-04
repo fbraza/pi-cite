@@ -1,3 +1,15 @@
+/**
+ * Automatic exposure owns only registered literature tools, never codemode or global settings.
+ *
+ * At each boundary, restore branch-local preferences when needed; otherwise observe manual
+ * changes to the active set. Apply defaultTools overrides only when their configured value
+ * changes. New explicit startup selections win over negative defaults, but an unchanged
+ * positive default must not resurrect a recorded manual disable on resume.
+ *
+ * Only "auto" preferences follow active codemode; "enabled"/"disabled" remain direct and
+ * active/inactive respectively. Reload/tree restoration preserves recorded preferences.
+ * Shutdown observes and persists late choices without re-registering or changing the loadout.
+ */
 import type { ExtensionAPI, ExtensionContext, ToolDefinition, ToolExposure } from "@earendil-works/pi-coding-agent";
 import { Type, type Static, type TSchema } from "typebox";
 import { Value } from "typebox/value";
@@ -13,6 +25,13 @@ const stateSchema = Type.Object({
   active: Type.Array(Type.Enum(LITERATURE_TOOL_NAMES)),
 }, { additionalProperties: false });
 type ExposureState = Static<typeof stateSchema>;
+
+type ObservationOptions = {
+  /** Read the current branch's persisted state instead of retaining the session snapshot. */
+  reset?: boolean;
+  /** When restoring saved preferences on reload/tree changes, ignore reconstructed active names. */
+  preserveRestored?: boolean;
+};
 
 export type ManagedLiteratureTool = {
   name: LiteratureToolName;
@@ -77,7 +96,10 @@ export function registerAutomaticExposure(pi: ExtensionAPI, tools: ManagedLitera
   let state: ExposureState | undefined;
   let persisted: string | undefined;
 
-  const observe = (ctx: ExtensionContext, reset = false, preserveRestored = false): string[] => {
+  const observe = (
+    ctx: ExtensionContext,
+    { reset = false, preserveRestored = false }: ObservationOptions = {},
+  ): string[] => {
     const active = pi.getActiveTools();
     const initialSelections: LiteratureToolName[] = [];
     if (reset || !state) {
@@ -131,8 +153,8 @@ export function registerAutomaticExposure(pi: ExtensionAPI, tools: ManagedLitera
     }
   };
 
-  const reconcile = (ctx: ExtensionContext, reset = false, preserveRestored = false): void => {
-    const active = observe(ctx, reset, preserveRestored);
+  const reconcile = (ctx: ExtensionContext, options: ObservationOptions = {}): void => {
+    const active = observe(ctx, options);
     if (!state) return;
     const codemodeActive = active.includes("codemode");
     const configuredTools = new Map(pi.getAllTools().map(tool => [tool.name, tool]));
@@ -160,8 +182,8 @@ export function registerAutomaticExposure(pi: ExtensionAPI, tools: ManagedLitera
     persist(pi.getActiveTools());
   };
 
-  pi.on("session_start", (event, ctx) => reconcile(ctx, true, event.reason === "reload"));
-  pi.on("session_tree", (_event, ctx) => reconcile(ctx, true, true));
+  pi.on("session_start", (event, ctx) => reconcile(ctx, { reset: true, preserveRestored: event.reason === "reload" }));
+  pi.on("session_tree", (_event, ctx) => reconcile(ctx, { reset: true, preserveRestored: true }));
   pi.on("before_agent_start", (_event, ctx) => reconcile(ctx));
   pi.on("session_shutdown", (_event, ctx) => {
     // Capture last-minute manual selections before reload/disposal, without

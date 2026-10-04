@@ -99,7 +99,7 @@ Acceptance:
 
 ## Phase 3 — Automatic exposure and tool metadata
 
-Status: complete — awaiting review before Phase 4
+Status: complete
 
 Implemented:
 - Added shared `literature` namespace metadata and accurate read-only/non-destructive/idempotent/open-world annotations to all four tool factories. Shortened tool descriptions; longer workflow guidance is discoverable through `describeNamespace("literature")` rather than inlined.
@@ -141,7 +141,31 @@ Acceptance:
 
 ## Phase 4 — Rendering correctness and consistency
 
-Status: pending
+Status: complete — approved for commit
+
+Implemented:
+- Forward renderer context from all four factories. Honor context-only `isError` (Pi's interactive path) and result error flags (including HTML); failed calls never receive generated success markers, even with partial or stale success details.
+- Use call arguments for missing query/identifier display metadata. Show missing final display details neutrally instead of fabricating empty successful results. Preserve nonfatal Zotero ownership warnings alongside successful PubMed results.
+- Add Europe PMC partial, compact, and expanded result rendering. Expected unavailability remains normal data with its exact reason and an explicit abstract fallback that was not fetched.
+- Full-text views retain citation identifiers, API/source provenance, available licensing, missing sections, section fallback, aggregate/per-section truncation, and bounded excerpt previews. UI preview omissions are labeled separately from returned-excerpt truncation.
+- Replace string-length table calculations with Pi TUI column/grapheme helpers. Narrow provider tables stack identifiers; PMCID and Zotero-key-only records now have usable display identifiers.
+- Reuse only extension-owned result components through `lastComponent`, cache layouts by width, and regenerate themed output on invalidation. No global renderer resolver or provider/UI coupling was added.
+- Update README with presentation behavior and limits.
+
+Validation:
+- `npm test`: all 76 tests passed (59 previous plus 17 new rendering tests).
+- Unit coverage includes success, context/result errors, partial events, empty/missing details, all six unavailable reasons, ownership warnings, truncation/fallback/provenance, Unicode/combining/emoji widths down to one column, resizing, component reuse, and theme invalidation.
+- Actual Pi `ToolExecutionComponent` coverage confirms context-only error propagation, expansion, narrow rendering, and dark/light theme invalidation without running a live terminal.
+- Real isolated Pi HTML export pre-renders all four tools' failures plus Europe PMC full-text/unavailable results; checks argument fallback, warnings, provenance, and HTML escaping.
+- Real isolated Pi direct/headless execution smoke-tests all four tools and confirms unchanged structured evidence/progress without invoking renderers. Provider HTTP is mocked; no model requests or live credentials are required.
+- `npm run typecheck`: passed.
+- `npm run pack:check`: passed; 25 packaged files, excluding tests/development files.
+- `git diff --check`: passed.
+
+Scope and remaining risks:
+- Only UI rendering changed. Tool content, structured output contracts, emitted progress payloads, provider behavior, and automatic exposure remain unchanged.
+- Interactive components and generated HTML are exercised automatically; no manual live-terminal or browser session was performed.
+- Model-facing output budgets and retrieval artifacts remain in Phase 5. No version bump or publication was performed.
 
 Work:
 - Use Pi's renderer context, particularly `isError` and `args`.
@@ -156,6 +180,30 @@ Acceptance:
 - Tests cover success, error, partial, empty, unavailable, and truncated states.
 - Test narrow widths, Unicode, expansion, and theme invalidation.
 - Verify interactive rendering and HTML export; smoke-test headless execution.
+
+## Pre-Phase-5 cleanup — approved review recommendations
+
+Status: complete — approved for inclusion with the Phase 4 commit
+
+Implemented:
+- Fix `sleep()` to remove its abort listener after normal completion and cancellation, clear the timer on cancellation, and avoid scheduling/attaching anything for a pre-aborted signal. Preserve the existing `Error("Request aborted")` rejection contract.
+- Add five deterministic timer/listener regression tests, including repeated sleeps on one signal, preservation of unrelated listeners, pending cancellation, pre-aborted signals, and abort after completion.
+- Document exposure precedence and replace positional reset/restoration flags with named options. Keep the existing state schema, explicit fresh-state object, algorithm order, persistence, and lifecycle boundaries unchanged; no new state-machine abstraction.
+- Add a regression test showing that removing positive/negative settings overrides does not reset recorded preferences, while explicit later activation can re-enable a tool.
+- Remove the four unused `register*Tool` wrappers and their now-unused ExtensionAPI imports. Repository searches found no remaining callers, and documentation history/package metadata show no supported standalone API for these helpers. Pi's declared entry is `src/index.ts`.
+- Retain the tool factories and tool names. Since source files are shipped and undocumented deep imports were technically possible, note the removal/migration caveat in CHANGELOG.md; external usage cannot be ruled out.
+- Keep README focused on installation and usage. Move change history, implementation details, and migration notes to CHANGELOG.md, included in the npm package.
+
+Validation:
+- `npm test`: all 82 tests passed (76 previous plus five sleep tests and one exposure-precedence test).
+- `npm run typecheck`: passed.
+- `npm run pack:check`: passed; 26 packaged files, including CHANGELOG.md and excluding tests/development files.
+- `git diff --check`: passed.
+
+Scope:
+- No provider rewrite, new configuration API, dependency, formatter, test harness, or renderer abstraction.
+- Group these changes with Phase 4 in the approved commit. No version bump or publication was performed.
+- Phase 5 has not begun.
 
 ## Phase 5 — Bounded evidence and codemode workflow
 

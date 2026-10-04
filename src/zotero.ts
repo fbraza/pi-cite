@@ -1,4 +1,3 @@
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { LITERATURE_TOOL_METADATA } from "./tool-metadata.ts";
 import { Type, type Static } from "typebox";
 import { renderProviderSearchResult } from "./rendering.ts";
@@ -449,12 +448,9 @@ export function createZoteroSearchTool() {
 			result: Parameters<typeof renderProviderSearchResult>[1],
 			options: Parameters<typeof renderProviderSearchResult>[2],
 			theme: Parameters<typeof renderProviderSearchResult>[3],
+			context?: Parameters<typeof renderProviderSearchResult>[4],
 		) {
-			return renderProviderSearchResult("zotero", result, options, theme);
+			return renderProviderSearchResult("zotero", result, options, theme, context);
 		},
 	};
-}
-
-export function registerZoteroSearchTool(pi: ExtensionAPI): void {
-	pi.registerTool(createZoteroSearchTool());
 }

@@ -1,5 +1,5 @@
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { LITERATURE_TOOL_METADATA } from "./tool-metadata.ts";
+import { renderEuropePmcFulltextResult } from "./rendering.ts";
 import { Type, type Static } from "typebox";
 import {
   emitProgress,
@@ -790,9 +790,13 @@ export function createEuropePmcFulltextTool() {
       const result = await fetchEuropePmcFulltext(params, signal, onUpdate);
       return structuredResult(EUROPE_PMC_OUTPUT, JSON.stringify(result, null, 2), result, result);
     },
+    renderResult(
+      result: Parameters<typeof renderEuropePmcFulltextResult>[0],
+      options: Parameters<typeof renderEuropePmcFulltextResult>[1],
+      theme: Parameters<typeof renderEuropePmcFulltextResult>[2],
+      context?: Parameters<typeof renderEuropePmcFulltextResult>[3],
+    ) {
+      return renderEuropePmcFulltextResult(result, options, theme, context);
+    },
   };
-}
-
-export function registerEuropePmcFulltextTool(pi: ExtensionAPI): void {
-  pi.registerTool(createEuropePmcFulltextTool());
 }
